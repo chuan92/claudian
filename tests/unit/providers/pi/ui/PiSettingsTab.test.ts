@@ -467,6 +467,21 @@ describe('PiSettingsTab', () => {
     expect(mockNotices[0]).toContain('not logged in');
   });
 
+  it('does not Notice when auto-discovery (catalog open) fails', async () => {
+    // The catalog auto-loads whenever it opens, including the programmatic open
+    // on settings render. Without `pi` installed this fails with ENOENT, and a
+    // Notice there would pop on every settings-page open.
+    mockDiscoverModels.mockResolvedValueOnce({ diagnostics: 'spawn pi ENOENT', models: [] });
+    render({});
+
+    const catalog = findElement('details', 'claudian-provider-model-picker-catalog');
+    catalog.open = true;
+    await catalog.dispatchMockEvent('toggle');
+
+    expect(mockDiscoverModels).toHaveBeenCalledTimes(1);
+    expect(mockNotices).toHaveLength(0);
+  });
+
   it('persists visible model choices and aliases', async () => {
     const settings: Record<string, unknown> = {
       providerConfigs: {

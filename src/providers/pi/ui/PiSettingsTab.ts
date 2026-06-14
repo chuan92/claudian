@@ -141,10 +141,12 @@ function renderPiModelPicker(
     emptyCatalogText: 'No Pi models discovered yet. Click Discover to load models from Pi.',
     failedCatalogText: 'Could not load the Pi model catalog. Check the CLI path and login state, then try again.',
     getState,
-    async loadCatalog() {
+    async loadCatalog(force) {
       const result = await new PiModelDiscoveryService(context.plugin).discoverModels();
       if (result.diagnostics) {
-        new Notice(`Pi discovery failed: ${result.diagnostics}`);
+        if (force) {
+          new Notice(`Pi discovery failed: ${result.diagnostics}`);
+        }
         return 'failed';
       }
 
