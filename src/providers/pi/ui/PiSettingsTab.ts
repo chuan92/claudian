@@ -493,7 +493,13 @@ export const piSettingsTabRenderer: ProviderSettingsTabRenderer = {
         const result = await new PiModelDiscoveryService(context.plugin).discoverModels();
         if (result.diagnostics) {
           modelCatalogLoadFailed = true;
-          new Notice(`Pi discovery failed: ${result.diagnostics}`);
+          // Only surface a Notice for an explicit Discover click. The auto-load
+          // fires whenever the catalog opens (including the programmatic open on
+          // settings render), so notifying there spams users without `pi`
+          // installed; the inline catalog message already reports the failure.
+          if (force) {
+            new Notice(`Pi discovery failed: ${result.diagnostics}`);
+          }
           return;
         }
 
