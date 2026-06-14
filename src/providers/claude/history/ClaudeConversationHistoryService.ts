@@ -15,6 +15,7 @@ import {
   loadSubagentToolCalls,
   sdkSessionExists,
 } from './ClaudeHistoryStore';
+import { deleteVaultTranscripts, exportTranscripts, importTranscripts } from './ClaudeTranscriptSync';
 
 function chooseRicherResult(sdkResult?: string, cachedResult?: string): string | undefined {
   const sdkText = typeof sdkResult === 'string' ? sdkResult.trim() : '';
@@ -431,6 +432,56 @@ export class ClaudeConversationHistoryService implements ProviderConversationHis
     this.hydratedConversationIds.add(conversation.id);
   }
 
+  /** Session ids whose transcripts back this conversation (current, prior, and fork source). */
+  private collectSessionIds(conversation: Conversation): string[] {
+    const state = getClaudeState(conversation.providerState);
+    if (this.isPendingForkConversation(conversation)) {
+      return [state.forkSource!.sessionId];
+    }
+    return [
+      ...(state.previousProviderSessionIds || []),
+      state.providerSessionId ?? conversation.sessionId,
+      state.forkSource?.sessionId,
+    ].filter((id): id is string => !!id);
+  }
+
+  async ensureLocalTranscripts(
+    conversation: Conversation,
+    vaultPath: string | null,
+  ): Promise<boolean> {
+    if (!vaultPath) {
+      return false;
+    }
+
+    const sessionIds = this.collectSessionIds(conversation);
+    if (sessionIds.length === 0) {
+      return false;
+    }
+
+    const imported = await importTranscripts(vaultPath, sessionIds);
+    if (imported) {
+      // A newer transcript arrived from another machine — allow re-hydration.
+      this.hydratedConversationIds.delete(conversation.id);
+    }
+    return imported;
+  }
+
+  async exportTranscripts(
+    conversation: Conversation,
+    vaultPath: string | null,
+  ): Promise<void> {
+    if (!vaultPath) {
+      return;
+    }
+
+    const sessionIds = this.collectSessionIds(conversation);
+    if (sessionIds.length === 0) {
+      return;
+    }
+
+    await exportTranscripts(vaultPath, sessionIds);
+  }
+
   async deleteConversationSession(
     conversation: Conversation,
     vaultPath: string | null,
@@ -442,5 +493,6 @@ export class ClaudeConversationHistoryService implements ProviderConversationHis
     }
 
     await deleteSDKSession(vaultPath, sessionId);
+    await deleteVaultTranscripts(vaultPath, this.collectSessionIds(conversation));
   }
 }

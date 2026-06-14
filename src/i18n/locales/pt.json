@@ -303,6 +303,10 @@
       "name": "Expandir edições de arquivo por padrão",
       "desc": "Mostrar os diffs de Write e Edit expandidos quando aparecerem pela primeira vez."
     },
+    "shareSessionsAcrossMachines": {
+      "name": "Compartilhar sessões entre dispositivos",
+      "desc": "Espelha as transcrições de conversa no cofre para que uma conversa iniciada em um dispositivo sincronizado possa ser aberta e continuada em outro. Requer que o cofre esteja sincronizado (p. ex., Syncthing, iCloud) e aumenta seu tamanho."
+    },
     "chatViewPlacement": {
       "name": "Abrir Claudian em",
       "desc": "Escolha onde o painel de chat abre quando é criado",

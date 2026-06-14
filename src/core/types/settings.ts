@@ -107,6 +107,9 @@ export interface ClaudianSettings {
   enableAutoTitleGeneration: boolean;
   titleGenerationModel: string;
 
+  /** Mirror native transcripts into the vault so conversations can be continued on other synced machines. */
+  shareSessionsAcrossMachines: boolean;
+
   // Content settings
   excludedTags: string[];
   mediaFolder: string;

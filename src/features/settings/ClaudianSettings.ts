@@ -350,6 +350,18 @@ export class ClaudianSettingTab extends PluginSettingTab {
         });
     }
 
+    new Setting(container)
+      .setName(t('settings.shareSessionsAcrossMachines.name'))
+      .setDesc(t('settings.shareSessionsAcrossMachines.desc'))
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.shareSessionsAcrossMachines ?? false)
+          .onChange(async (value) => {
+            this.plugin.settings.shareSessionsAcrossMachines = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
     // --- Content ---
 
     new Setting(container).setName(t('settings.content')).setHeading();

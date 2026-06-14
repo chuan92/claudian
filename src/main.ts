@@ -52,6 +52,15 @@ export default class ClaudianPlugin extends Plugin {
   storage!: SharedAppStorage;
   private conversations: Conversation[] = [];
   private lastKnownTabManagerState: AppTabManagerState | null = null;
+  private pendingTranscriptExports = new Map<string, number>();
+
+  /**
+   * Delay before re-exporting a transcript after its turn-completion save. The
+   * provider SDK flushes the final assistant message to disk slightly after the
+   * save fires, so the immediate export can miss the last reply; this follow-up
+   * catches it once the file has settled.
+   */
+  private static readonly TRANSCRIPT_REEXPORT_DELAY_MS = 2500;
 
   async onload() {
     await this.loadSettings();
@@ -179,6 +188,7 @@ export default class ClaudianPlugin extends Plugin {
   }
 
   onunload(): void {
+    void this.flushPendingTranscriptExports();
     void this.persistOpenTabStates();
   }
 
@@ -595,9 +605,56 @@ export default class ClaudianPlugin extends Plugin {
   }
 
   private async loadSdkMessagesForConversation(conversation: Conversation): Promise<void> {
+    const vaultPath = getVaultPath(this.app);
+    const historyService = ProviderRegistry.getConversationHistoryService(conversation.providerId);
+
+    if (this.settings.shareSessionsAcrossMachines) {
+      await historyService.ensureLocalTranscripts?.(conversation, vaultPath);
+    }
+
+    await historyService.hydrateConversationHistory(conversation, vaultPath);
+  }
+
+  private async exportConversationTranscripts(conversation: Conversation): Promise<void> {
+    if (!this.settings.shareSessionsAcrossMachines) {
+      return;
+    }
+
     await ProviderRegistry
       .getConversationHistoryService(conversation.providerId)
-      .hydrateConversationHistory(conversation, getVaultPath(this.app));
+      .exportTranscripts?.(conversation, getVaultPath(this.app));
+  }
+
+  /** Coalesced follow-up export; see {@link ClaudianPlugin.TRANSCRIPT_REEXPORT_DELAY_MS}. */
+  private scheduleTranscriptReexport(conversation: Conversation): void {
+    if (!this.settings.shareSessionsAcrossMachines) {
+      return;
+    }
+
+    const existing = this.pendingTranscriptExports.get(conversation.id);
+    if (existing) {
+      window.clearTimeout(existing);
+    }
+
+    const timer = window.setTimeout(() => {
+      this.pendingTranscriptExports.delete(conversation.id);
+      void this.exportConversationTranscripts(conversation);
+    }, ClaudianPlugin.TRANSCRIPT_REEXPORT_DELAY_MS);
+
+    this.pendingTranscriptExports.set(conversation.id, timer);
+  }
+
+  private async flushPendingTranscriptExports(): Promise<void> {
+    const pending = [...this.pendingTranscriptExports.entries()];
+    this.pendingTranscriptExports.clear();
+
+    for (const [id, timer] of pending) {
+      window.clearTimeout(timer);
+      const conversation = this.conversations.find((conv) => conv.id === id);
+      if (conversation) {
+        await this.exportConversationTranscripts(conversation);
+      }
+    }
   }
 
   async createConversation(options?: {
@@ -640,6 +697,12 @@ export default class ClaudianPlugin extends Plugin {
 
     const conversation = this.conversations[index];
     this.conversations.splice(index, 1);
+
+    const pendingExport = this.pendingTranscriptExports.get(id);
+    if (pendingExport) {
+      window.clearTimeout(pendingExport);
+      this.pendingTranscriptExports.delete(id);
+    }
 
     await ProviderRegistry
       .getConversationHistoryService(conversation.providerId)
@@ -684,6 +747,9 @@ export default class ClaudianPlugin extends Plugin {
     await this.storage.sessions.saveMetadata(
       this.storage.sessions.toSessionMetadata(conversation)
     );
+
+    await this.exportConversationTranscripts(conversation);
+    this.scheduleTranscriptReexport(conversation);
 
     // Clear image data from memory after save (data is persisted by SDK).
     // Skip for pending forks: their deep-cloned images aren't in SDK storage yet.

@@ -303,6 +303,10 @@
       "name": "Expand file edits by default",
       "desc": "Show Write and Edit diffs expanded when they first appear."
     },
+    "shareSessionsAcrossMachines": {
+      "name": "Share sessions across machines",
+      "desc": "Mirror conversation transcripts into the vault so a conversation started on one synced machine can be opened and continued on another. Requires the vault itself to be synced (e.g. Syncthing, iCloud) and increases vault size."
+    },
     "chatViewPlacement": {
       "name": "Open Claudian in",
       "desc": "Choose where the chat panel opens when it is created",

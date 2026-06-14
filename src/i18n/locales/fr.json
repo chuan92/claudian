@@ -303,6 +303,10 @@
       "name": "Développer les modifications de fichiers par défaut",
       "desc": "Afficher les diffs Write et Edit développés lors de leur première apparition."
     },
+    "shareSessionsAcrossMachines": {
+      "name": "Partager les sessions entre appareils",
+      "desc": "Reflète les transcriptions de conversation dans le coffre afin qu'une conversation démarrée sur un appareil synchronisé puisse être ouverte et poursuivie sur un autre. Nécessite un coffre synchronisé (par ex. Syncthing, iCloud) et augmente la taille du coffre."
+    },
     "chatViewPlacement": {
       "name": "Ouvrir Claudian dans",
       "desc": "Choisissez où le panneau de chat s'ouvre lors de sa création",

@@ -412,6 +412,21 @@ export interface ProviderConversationHistoryService {
   ): Record<string, unknown>;
   /** Adds provider-owned persisted metadata to Conversation.providerState before session save. */
   buildPersistedProviderState?(conversation: Conversation): Record<string, unknown> | undefined;
+  /**
+   * Materializes vault-carried native transcripts into this machine's provider
+   * storage so history can hydrate and the runtime can resume. Used for sharing
+   * conversations across machines that sync the vault. Returns whether anything
+   * was imported (so the caller can invalidate hydration caches).
+   */
+  ensureLocalTranscripts?(
+    conversation: Conversation,
+    vaultPath: string | null,
+  ): Promise<boolean>;
+  /** Copies this conversation's native transcripts into the vault for cross-machine sync. */
+  exportTranscripts?(
+    conversation: Conversation,
+    vaultPath: string | null,
+  ): Promise<void>;
 }
 
 export type ProviderTaskTerminalStatus = Extract<ToolCallInfo['status'], 'completed' | 'error'>;
