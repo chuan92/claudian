@@ -1107,7 +1107,8 @@ export class ConversationController {
         }
         this.updateHistoryDropdown();
         this.callbacks.onTitleChanged?.();
-      }
+      },
+      { notePath: firstUserMsg.currentNote },
     );
   }
 
