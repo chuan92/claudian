@@ -1242,7 +1242,28 @@ describe('ConversationController - Title Generation', () => {
       expect(mockTitleService.generateTitle).toHaveBeenCalledWith(
         'conv-1',
         'Hello world!', // Uses displayContent
-        expect.any(Function)
+        expect.any(Function),
+        { notePath: undefined }
+      );
+    });
+
+    it('should pass the first message note as title context', async () => {
+      (deps.plugin.getConversationById as any) = jest.fn().mockResolvedValue({
+        id: 'conv-1',
+        title: 'Old Title',
+        messages: [
+          { role: 'user', content: 'Explain this', currentNote: 'papers/Attention.md' },
+          { role: 'assistant', content: 'Sure' },
+        ],
+      });
+
+      await controller.regenerateTitle('conv-1');
+
+      expect(mockTitleService.generateTitle).toHaveBeenCalledWith(
+        'conv-1',
+        'Explain this',
+        expect.any(Function),
+        { notePath: 'papers/Attention.md' }
       );
     });
 
@@ -1258,7 +1279,8 @@ describe('ConversationController - Title Generation', () => {
       expect(mockTitleService.generateTitle).toHaveBeenCalledWith(
         'conv-1',
         'Hello world',
-        expect.any(Function)
+        expect.any(Function),
+        { notePath: undefined }
       );
     });
 

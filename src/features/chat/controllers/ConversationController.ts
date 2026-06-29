@@ -962,7 +962,8 @@ export class ConversationController {
           await plugin.updateConversation(convId, { titleGenerationStatus: undefined });
         }
         this.updateHistoryDropdown();
-      }
+      },
+      { notePath: firstUserMsg.currentNote },
     );
   }
 

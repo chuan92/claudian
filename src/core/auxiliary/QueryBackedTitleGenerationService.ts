@@ -5,6 +5,7 @@ import {
 } from '../prompt/titleGeneration';
 import type {
   TitleGenerationCallback,
+  TitleGenerationContext,
   TitleGenerationResult,
   TitleGenerationService,
 } from '../providers/types';
@@ -29,6 +30,7 @@ export class QueryBackedTitleGenerationService implements TitleGenerationService
     conversationId: string,
     userMessage: string,
     callback: TitleGenerationCallback,
+    context?: TitleGenerationContext,
   ): Promise<void> {
     const existing = this.activeGenerations.get(conversationId);
     if (existing) {
@@ -46,7 +48,7 @@ export class QueryBackedTitleGenerationService implements TitleGenerationService
         abortController,
         model: this.options.resolveModel?.(),
         systemPrompt: TITLE_GENERATION_SYSTEM_PROMPT,
-      }, buildTitleGenerationPrompt(userMessage));
+      }, buildTitleGenerationPrompt(userMessage, context));
       const title = parseTitleGenerationResponse(text);
       await this.safeCallback(
         callback,

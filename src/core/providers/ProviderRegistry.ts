@@ -14,6 +14,7 @@ import {
   type ProviderSubagentLifecycleAdapter,
   type ProviderTaskResultInterpreter,
   type TitleGenerationCallback,
+  type TitleGenerationContext,
   type TitleGenerationService,
 } from './types';
 
@@ -206,6 +207,7 @@ class RoutedTitleGenerationService implements TitleGenerationService {
     conversationId: string,
     userMessage: string,
     callback: TitleGenerationCallback,
+    context?: TitleGenerationContext,
   ): Promise<void> {
     const providerId = ProviderRegistry.resolveTitleGenerationProviderId(
       this.plugin.settings as unknown as Record<string, unknown>,
@@ -223,7 +225,7 @@ class RoutedTitleGenerationService implements TitleGenerationService {
           return;
         }
         await callback(convId, result);
-      });
+      }, context);
     } finally {
       if (this.activeGenerations.get(conversationId) === generation) {
         this.activeGenerations.delete(conversationId);

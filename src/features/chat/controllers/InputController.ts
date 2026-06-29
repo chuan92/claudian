@@ -1160,6 +1160,7 @@ export class InputController {
 
     const convId = state.currentConversationId;
     const expectedTitle = fallbackTitle; // Store to check if user renamed during generation
+    const notePath = this.deps.getFileContextManager()?.getCurrentNotePath() || undefined;
 
     titleService.generateTitle(
       convId,
@@ -1183,7 +1184,8 @@ export class InputController {
           await plugin.updateConversation(conversationId, { titleGenerationStatus: undefined });
         }
         conversationController.updateHistoryDropdown();
-      }
+      },
+      { notePath },
     ).catch(() => {
       // Silently ignore title generation errors
     });

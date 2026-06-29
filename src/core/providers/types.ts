@@ -490,11 +490,17 @@ export type TitleGenerationCallback = (
   result: TitleGenerationResult
 ) => Promise<void>;
 
+export interface TitleGenerationContext {
+  /** Path or name of the note/document in context, used to ground vague references in the title. */
+  notePath?: string;
+}
+
 export interface TitleGenerationService {
   generateTitle(
     conversationId: string,
     userMessage: string,
-    callback: TitleGenerationCallback
+    callback: TitleGenerationCallback,
+    context?: TitleGenerationContext
   ): Promise<void>;
   cancel(): void;
 }
