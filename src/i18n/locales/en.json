@@ -67,6 +67,10 @@
       "expandOutput": "Expand command output",
       "running": "Running...",
       "copyFailed": "Failed to copy to clipboard"
+    },
+    "history": {
+      "searchPlaceholder": "Search conversations...",
+      "noResults": "No matching conversations"
     }
   },
   "settings": {

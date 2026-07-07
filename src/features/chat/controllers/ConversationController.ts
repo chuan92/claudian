@@ -3,7 +3,7 @@ import { Menu, Notice, setIcon } from 'obsidian';
 import type { TitleGenerationService } from '../../../core/providers/types';
 import type { ChatRuntime } from '../../../core/runtime/ChatRuntime';
 import type { ChatRewindMode } from '../../../core/runtime/types';
-import type { Conversation } from '../../../core/types';
+import type { Conversation, ConversationMeta } from '../../../core/types';
 import { t } from '../../../i18n/i18n';
 import { confirm } from '../../../shared/modals/ConfirmModal';
 import { extractUserDisplayContent } from '../../../utils/context';
@@ -605,20 +605,57 @@ export class ConversationController {
     const dropdownHeader = container.createDiv({ cls: 'claudian-history-header' });
     dropdownHeader.createSpan({ text: 'Conversations' });
 
-    const list = container.createDiv({ cls: 'claudian-history-list' });
     const allConversations = plugin.getConversationList();
 
     if (allConversations.length === 0) {
+      const list = container.createDiv({ cls: 'claudian-history-list' });
       list.createDiv({ cls: 'claudian-history-empty', text: 'No conversations' });
       return;
     }
 
+    const searchContainer = container.createDiv({ cls: 'claudian-history-search' });
+    const searchInput = searchContainer.createEl('input', {
+      type: 'text',
+      cls: 'claudian-history-search-input',
+      placeholder: t('chat.history.searchPlaceholder'),
+    });
+    searchInput.addEventListener('click', event => event.stopPropagation());
+
+    const list = container.createDiv({ cls: 'claudian-history-list' });
+
     // Sort by lastResponseAt (fallback to createdAt) descending
-    const conversations = [...allConversations].sort((a, b) => {
+    const sortedConversations = [...allConversations].sort((a, b) => {
       return (b.lastResponseAt ?? b.createdAt) - (a.lastResponseAt ?? a.createdAt);
     });
 
-    for (const conv of conversations) {
+    const matchesSearch = (conversation: ConversationMeta, query: string): boolean => {
+      if (!query) return true;
+      if (conversation.title.toLowerCase().includes(query)) return true;
+      if (!conversation.currentNote) return false;
+
+      const notePath = conversation.currentNote.toLowerCase();
+      const noteName = (conversation.currentNote.split(/[\\/]/).pop() ?? conversation.currentNote)
+        .replace(/\.md$/i, '')
+        .toLowerCase();
+      return notePath.includes(query) || noteName.includes(query);
+    };
+
+    const renderList = (query: string): void => {
+      list.empty();
+      const normalizedQuery = query.trim().toLowerCase();
+      const conversations = normalizedQuery
+        ? sortedConversations.filter(conversation => matchesSearch(conversation, normalizedQuery))
+        : sortedConversations;
+
+      if (conversations.length === 0) {
+        list.createDiv({
+          cls: 'claudian-history-empty',
+          text: t('chat.history.noResults'),
+        });
+        return;
+      }
+
+      for (const conv of conversations) {
       const fallbackOpenState: HistoryConversationOpenState =
         conv.id === state.currentConversationId ? 'current' : 'closed';
       const conversationStatus = this.getHistoryConversationStatus(conv.id, fallbackOpenState, options);
@@ -756,7 +793,11 @@ export class ConversationController {
           'Failed to delete conversation',
         );
       });
-    }
+      }
+    };
+
+    searchInput.addEventListener('input', () => renderList(searchInput.value));
+    renderList('');
   }
 
   private getHistoryConversationStatus(

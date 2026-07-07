@@ -33,6 +33,31 @@
   border-bottom: 1px solid var(--background-modifier-border);
 }
 
+.claudian-history-search {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.claudian-history-search-input {
+  width: 100%;
+  padding: 6px 8px;
+  font-size: 13px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+}
+
+.claudian-history-search-input:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 2px var(--interactive-accent-hover);
+}
+
+.claudian-history-search-input::placeholder {
+  color: var(--text-faint);
+}
+
 .claudian-history-list {
   max-height: 350px;
   overflow-y: auto;

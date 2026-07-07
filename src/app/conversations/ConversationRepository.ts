@@ -209,6 +209,7 @@ export class ConversationRepository {
       messageCount: conversation.messages.length,
       preview: this.getPreview(conversation),
       titleGenerationStatus: conversation.titleGenerationStatus,
+      currentNote: conversation.currentNote,
     }));
   }
 

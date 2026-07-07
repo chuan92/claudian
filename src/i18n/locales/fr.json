@@ -67,6 +67,10 @@
       "expandOutput": "Développer la sortie de la commande",
       "running": "Exécution...",
       "copyFailed": "Échec de la copie dans le presse-papiers"
+    },
+    "history": {
+      "searchPlaceholder": "Rechercher des conversations...",
+      "noResults": "Aucune conversation correspondante"
     }
   },
   "settings": {

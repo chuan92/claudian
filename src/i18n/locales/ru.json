@@ -67,6 +67,10 @@
       "expandOutput": "Развернуть вывод команды",
       "running": "Выполняется...",
       "copyFailed": "Не удалось скопировать в буфер обмена"
+    },
+    "history": {
+      "searchPlaceholder": "Поиск бесед...",
+      "noResults": "Нет подходящих бесед"
     }
   },
   "settings": {

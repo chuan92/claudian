@@ -67,6 +67,10 @@
       "expandOutput": "Expandir a saída do comando",
       "running": "Executando...",
       "copyFailed": "Falha ao copiar para a área de transferência"
+    },
+    "history": {
+      "searchPlaceholder": "Pesquisar conversas...",
+      "noResults": "Nenhuma conversa correspondente"
     }
   },
   "settings": {
