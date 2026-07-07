@@ -49,6 +49,10 @@ export type TranslationKey =
   | 'chat.bangBash.running'
   | 'chat.bangBash.copyFailed'
 
+  // Chat - History
+  | 'chat.history.searchPlaceholder'
+  | 'chat.history.noResults'
+
   // Chat - Fork
   | 'chat.fork.ariaLabel'
   | 'chat.fork.chooseTarget'

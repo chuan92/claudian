@@ -100,6 +100,8 @@ export interface ConversationMeta {
   preview: string;
   /** Status of AI title generation. */
   titleGenerationStatus?: 'pending' | 'success' | 'failed';
+  /** Vault-relative path of the note associated with this conversation. */
+  currentNote?: string;
 }
 
 /**

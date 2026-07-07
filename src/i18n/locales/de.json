@@ -67,6 +67,10 @@
       "expandOutput": "Befehlsausgabe ausklappen",
       "running": "Wird ausgeführt...",
       "copyFailed": "Kopieren in die Zwischenablage fehlgeschlagen"
+    },
+    "history": {
+      "searchPlaceholder": "Unterhaltungen suchen...",
+      "noResults": "Keine passenden Unterhaltungen"
     }
   },
   "settings": {

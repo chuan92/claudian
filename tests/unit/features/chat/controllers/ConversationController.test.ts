@@ -617,8 +617,8 @@ describe('ConversationController', () => {
 
         controller.updateHistoryDropdown();
 
-        expect(dropdown.children.length).toBe(2);
-        const list = dropdown.children[1];
+        expect(dropdown.children.length).toBe(3);
+        const list = dropdown.children.find((child: any) => child.hasClass('claudian-history-list'));
         expect(list.hasClass('claudian-history-list')).toBe(true);
         expect(list.children.length).toBe(2);
       });
@@ -628,7 +628,7 @@ describe('ConversationController', () => {
 
         controller.updateHistoryDropdown();
 
-        const list = dropdown.children[1];
+        const list = dropdown.children.find((child: any) => child.hasClass('claudian-history-list'));
         expect(list.children[0].hasClass('claudian-history-empty')).toBe(true);
       });
 
@@ -641,7 +641,7 @@ describe('ConversationController', () => {
 
         controller.updateHistoryDropdown();
 
-        const list = dropdown.children[1];
+        const list = dropdown.children.find((child: any) => child.hasClass('claudian-history-list'));
         const firstTitle = list.children[0].querySelector('.claudian-history-item-title');
         expect(firstTitle?.textContent).toBe('New');
       });
@@ -656,7 +656,7 @@ describe('ConversationController', () => {
 
         controller.updateHistoryDropdown();
 
-        const list = dropdown.children[1];
+        const list = dropdown.children.find((child: any) => child.hasClass('claudian-history-list'));
         const items = list.children;
         const activeItem = items.find((item: any) => item.hasClass('active'));
         expect(activeItem).toBeDefined();
@@ -669,7 +669,7 @@ describe('ConversationController', () => {
 
         controller.updateHistoryDropdown();
 
-        const list = dropdown.children[1];
+        const list = dropdown.children.find((child: any) => child.hasClass('claudian-history-list'));
         const item = list.children[0];
         const loadingEl = item.querySelector('.claudian-action-loading');
         expect(loadingEl).toBeTruthy();
@@ -682,7 +682,7 @@ describe('ConversationController', () => {
 
         controller.updateHistoryDropdown();
 
-        const list = dropdown.children[1];
+        const list = dropdown.children.find((child: any) => child.hasClass('claudian-history-list'));
         const item = list.children[0];
         const actions = item.querySelector('.claudian-history-item-actions');
         expect(actions).toBeTruthy();
@@ -699,7 +699,7 @@ describe('ConversationController', () => {
 
         controller.updateHistoryDropdown();
 
-        const list = dropdown.children[1];
+        const list = dropdown.children.find((child: any) => child.hasClass('claudian-history-list'));
         const item = list.children[0];
         const content = item.querySelector('.claudian-history-item-content');
         const listeners = content?._eventListeners?.get('click');
@@ -716,7 +716,7 @@ describe('ConversationController', () => {
 
         controller.updateHistoryDropdown();
 
-        const list = dropdown.children[1];
+        const list = dropdown.children.find((child: any) => child.hasClass('claudian-history-list'));
         // conv-2 is the non-current one (sorted second by lastResponseAt)
         const otherItem = list.children[1];
         const content = otherItem.querySelector('.claudian-history-item-content');
@@ -734,7 +734,7 @@ describe('ConversationController', () => {
 
         controller.updateHistoryDropdown();
 
-        const list = dropdown.children[1];
+        const list = dropdown.children.find((child: any) => child.hasClass('claudian-history-list'));
         const item = list.children[0];
         const deleteBtn = item.querySelector('.claudian-delete-btn');
         expect(deleteBtn).toBeTruthy();
@@ -744,6 +744,72 @@ describe('ConversationController', () => {
         await clickHandlers![0]({ stopPropagation: jest.fn() });
 
         expect(deps.plugin.deleteConversation).not.toHaveBeenCalled();
+      });
+
+      it('should render a search input', () => {
+        (deps.plugin.getConversationList as jest.Mock).mockReturnValue([
+          { id: 'conv-1', title: 'Test', createdAt: 1000, lastResponseAt: 1000 },
+        ]);
+
+        controller.updateHistoryDropdown();
+
+        const searchInput = dropdown.querySelector('.claudian-history-search-input');
+        expect(searchInput).toBeTruthy();
+      });
+
+      it('should filter conversations by title', () => {
+        (deps.plugin.getConversationList as jest.Mock).mockReturnValue([
+          { id: 'conv-1', title: 'Alpha Chat', createdAt: 1000, lastResponseAt: 1000 },
+          { id: 'conv-2', title: 'Beta Chat', createdAt: 2000, lastResponseAt: 2000 },
+        ]);
+
+        controller.updateHistoryDropdown();
+
+        const searchInput = dropdown.querySelector('.claudian-history-search-input');
+        (searchInput as any).value = 'Alpha';
+        const inputHandlers = searchInput!._eventListeners?.get('input');
+        expect(inputHandlers).toBeDefined();
+        inputHandlers![0]({ stopPropagation: jest.fn() });
+
+        const list = dropdown.children.find((child: any) => child.hasClass('claudian-history-list'));
+        expect(list.children.length).toBe(1);
+        expect(list.children[0].querySelector('.claudian-history-item-title')?.textContent).toBe('Alpha Chat');
+      });
+
+      it('should filter conversations by associated note name', () => {
+        (deps.plugin.getConversationList as jest.Mock).mockReturnValue([
+          { id: 'conv-1', title: 'Alpha Chat', createdAt: 1000, lastResponseAt: 1000, currentNote: 'notes/project.md' },
+          { id: 'conv-2', title: 'Beta Chat', createdAt: 2000, lastResponseAt: 2000, currentNote: 'notes/weekly.md' },
+        ]);
+
+        controller.updateHistoryDropdown();
+
+        const searchInput = dropdown.querySelector('.claudian-history-search-input');
+        (searchInput as any).value = 'weekly';
+        const inputHandlers = searchInput!._eventListeners?.get('input');
+        inputHandlers![0]({ stopPropagation: jest.fn() });
+
+        const list = dropdown.children.find((child: any) => child.hasClass('claudian-history-list'));
+        expect(list.children.length).toBe(1);
+        expect(list.children[0].querySelector('.claudian-history-item-title')?.textContent).toBe('Beta Chat');
+      });
+
+      it('should show no results message when search matches nothing', () => {
+        (deps.plugin.getConversationList as jest.Mock).mockReturnValue([
+          { id: 'conv-1', title: 'Alpha Chat', createdAt: 1000, lastResponseAt: 1000 },
+        ]);
+
+        controller.updateHistoryDropdown();
+
+        const searchInput = dropdown.querySelector('.claudian-history-search-input');
+        (searchInput as any).value = 'zzz';
+        const inputHandlers = searchInput!._eventListeners?.get('input');
+        inputHandlers![0]({ stopPropagation: jest.fn() });
+
+        const list = dropdown.children.find((child: any) => child.hasClass('claudian-history-list'));
+        expect(list.children.length).toBe(1);
+        expect(list.children[0].hasClass('claudian-history-empty')).toBe(true);
+        expect(list.children[0].textContent).toBe('No matching conversations');
       });
     });
 
@@ -758,7 +824,7 @@ describe('ConversationController', () => {
 
         controller.renderHistoryDropdown(container, { onSelectConversation });
 
-        expect(container.children.length).toBe(2); // header + list
+        expect(container.children.length).toBe(3); // header + search + list
       });
 
       it('should open a conversation in a new tab on modifier click when supported', async () => {
@@ -778,7 +844,7 @@ describe('ConversationController', () => {
           getConversationOpenState: () => 'closed',
         });
 
-        const list = container.children[1];
+        const list = container.children.find((child: any) => child.hasClass('claudian-history-list'));
         const otherItem = list.children[1];
         const content = otherItem.querySelector('.claudian-history-item-content');
         const clickHandlers = content?._eventListeners?.get('click');
@@ -814,7 +880,7 @@ describe('ConversationController', () => {
           getConversationOpenState: () => 'closed',
         });
 
-        const list = container.children[1];
+        const list = container.children.find((child: any) => child.hasClass('claudian-history-list'));
         const otherItem = list.children[1];
         const content = otherItem.querySelector('.claudian-history-item-content');
         const auxClickHandlers = content?._eventListeners?.get('auxclick');
@@ -845,7 +911,7 @@ describe('ConversationController', () => {
           getConversationOpenState: () => 'closed',
         });
 
-        const list = container.children[1];
+        const list = container.children.find((child: any) => child.hasClass('claudian-history-list'));
         const otherItem = list.children[1];
         otherItem.dispatchEvent({
           type: 'contextmenu',
@@ -877,7 +943,7 @@ describe('ConversationController', () => {
           getConversationOpenState: () => 'open',
         });
 
-        const list = container.children[1];
+        const list = container.children.find((child: any) => child.hasClass('claudian-history-list'));
         const otherItem = list.children[1];
         otherItem.dispatchEvent({
           type: 'contextmenu',
@@ -913,7 +979,7 @@ describe('ConversationController', () => {
 
       controller.updateHistoryDropdown();
 
-      const list = dropdown.children[1];
+      const list = dropdown.children.find((child: any) => child.hasClass('claudian-history-list'));
       const otherItem = list.children[1];
       const content = otherItem.querySelector('.claudian-history-item-content');
       const clickHandlers = content?._eventListeners?.get('click');
@@ -938,7 +1004,7 @@ describe('ConversationController', () => {
 
       controller.updateHistoryDropdown();
 
-      const list = dropdown.children[1];
+      const list = dropdown.children.find((child: any) => child.hasClass('claudian-history-list'));
       const item = list.children[0];
       const actions = item.querySelector('.claudian-history-item-actions');
       // First child is the regenerate button
@@ -966,7 +1032,7 @@ describe('ConversationController', () => {
 
       controller.updateHistoryDropdown();
 
-      const list = dropdown.children[1];
+      const list = dropdown.children.find((child: any) => child.hasClass('claudian-history-list'));
       const item = list.children[0];
       const actions = item.querySelector('.claudian-history-item-actions');
       expect(actions).toBeTruthy();
@@ -1011,7 +1077,7 @@ describe('ConversationController', () => {
 
       controller.updateHistoryDropdown();
 
-      const list = dropdown.children[1];
+      const list = dropdown.children.find((child: any) => child.hasClass('claudian-history-list'));
       const item = list.children[0];
       const deleteBtn = item.querySelector('.claudian-delete-btn');
       expect(deleteBtn).toBeTruthy();
@@ -1034,7 +1100,7 @@ describe('ConversationController', () => {
 
       controller.updateHistoryDropdown();
 
-      const list = dropdown.children[1];
+      const list = dropdown.children.find((child: any) => child.hasClass('claudian-history-list'));
       const otherItem = list.children[1]; // conv-2
       const deleteBtn = otherItem.querySelector('.claudian-delete-btn');
       const clickHandlers = deleteBtn!._eventListeners?.get('click');

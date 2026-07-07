@@ -793,6 +793,7 @@ export default class ClaudianPlugin extends Plugin {
       messageCount: c.messages.length,
       preview: this.getConversationPreview(c),
       titleGenerationStatus: c.titleGenerationStatus,
+      currentNote: c.currentNote,
     }));
   }
 

@@ -67,6 +67,10 @@
       "expandOutput": "명령 출력 펼치기",
       "running": "실행 중...",
       "copyFailed": "클립보드에 복사하지 못했습니다"
+    },
+    "history": {
+      "searchPlaceholder": "대화 검색...",
+      "noResults": "일치하는 대화가 없습니다"
     }
   },
   "settings": {

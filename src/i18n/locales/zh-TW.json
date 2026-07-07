@@ -67,6 +67,10 @@
       "expandOutput": "展開指令輸出",
       "running": "執行中...",
       "copyFailed": "複製到剪貼簿失敗"
+    },
+    "history": {
+      "searchPlaceholder": "搜尋對話...",
+      "noResults": "沒有符合的對話"
     }
   },
   "settings": {

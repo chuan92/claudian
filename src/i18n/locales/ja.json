@@ -67,6 +67,10 @@
       "expandOutput": "コマンド出力を展開",
       "running": "実行中...",
       "copyFailed": "クリップボードへのコピーに失敗しました"
+    },
+    "history": {
+      "searchPlaceholder": "会話を検索...",
+      "noResults": "一致する会話がありません"
     }
   },
   "settings": {
