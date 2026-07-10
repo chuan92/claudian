@@ -151,6 +151,7 @@
 .claudian-message-content table {
   width: 100%;
   border-collapse: collapse;
+  table-layout: fixed;
   margin: 8px 0;
 }
 
@@ -159,6 +160,7 @@
   border: 1px solid var(--background-modifier-border);
   padding: 6px 10px;
   text-align: start;
+  word-break: break-word;
 }
 
 .claudian-message-content th {

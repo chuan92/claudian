@@ -16,6 +16,7 @@ import {
 import type { HistoryConversationOpenState } from './controllers/ConversationController';
 import {
   getTabProviderId,
+  getTabTitle,
   onProviderAvailabilityChanged,
   sendTabInputMessageFromExplicitEnterShortcut,
   updatePlanModeUI,
@@ -46,6 +47,7 @@ export class ClaudianView extends ItemView {
   private titleSlotEl: HTMLElement | null = null;
   private logoEl: HTMLElement | null = null;
   private titleTextEl: HTMLElement | null = null;
+  private conversationTitleEl: HTMLElement | null = null;
   private headerActionsEl: HTMLElement | null = null;
   private headerActionsContent: HTMLElement | null = null;
   private newTabButtonEl: HTMLElement | null = null;
@@ -197,18 +199,23 @@ export class ClaudianView extends ItemView {
           this.updateNavRowLocation();
           this.persistTabState();
           this.syncProviderBrandColor();
+          this.syncHeaderTitle();
         },
         onTabClosed: () => {
           this.updateTabBar();
           this.persistTabState();
         },
         onTabStreamingChanged: () => this.updateTabBar(),
-        onTabTitleChanged: () => this.updateTabBar(),
+        onTabTitleChanged: () => {
+          this.updateTabBar();
+          this.syncHeaderTitle();
+        },
         onTabAttentionChanged: () => this.updateTabBar(),
         onTabConversationChanged: () => {
           this.updateTabBar();
           this.persistTabState();
           this.syncProviderBrandColor();
+          this.syncHeaderTitle();
         },
         onTabProviderChanged: () => {
           this.updateTabBar();
@@ -220,6 +227,7 @@ export class ClaudianView extends ItemView {
     this.wireEventHandlers();
     await this.restoreOrCreateTabs();
     this.syncProviderBrandColor();
+    this.syncHeaderTitle();
     this.updateLayoutForPosition();
     this.tabManager?.primeProviderRuntime();
   }
@@ -260,7 +268,8 @@ export class ClaudianView extends ItemView {
     this.syncHeaderLogo(DEFAULT_CHAT_PROVIDER_ID);
 
     // Title text (hidden in header mode when 2+ tabs)
-    this.titleTextEl = this.titleSlotEl.createEl('h4', { text: 'Claudian', cls: 'claudian-title-text' });
+    this.titleTextEl = this.titleSlotEl.createDiv({ cls: 'claudian-title-text' });
+    this.conversationTitleEl = this.titleTextEl.createDiv({ cls: 'claudian-conversation-title' });
 
     // Header actions container (for header mode - initially hidden)
     this.headerActionsEl = header.createDiv({ cls: 'claudian-header-actions claudian-header-actions-slot claudian-hidden' });
@@ -491,6 +500,13 @@ export class ClaudianView extends ItemView {
     const providerId = activeTab ? getTabProviderId(activeTab, this.plugin) : DEFAULT_CHAT_PROVIDER_ID;
     this.viewContainerEl.dataset.provider = providerId;
     this.syncHeaderLogo(providerId);
+  }
+
+  /** Updates the header title text to match the active tab's conversation title. */
+  private syncHeaderTitle(): void {
+    if (!this.conversationTitleEl) return;
+    const activeTab = this.tabManager?.getActiveTab();
+    this.conversationTitleEl.setText(activeTab ? getTabTitle(activeTab, this.plugin) : 'Claudian');
   }
 
   /** Rebuilds the header logo SVG to match the given provider. */

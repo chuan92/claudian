@@ -24,9 +24,22 @@
 }
 
 .claudian-title-text {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+}
+
+.claudian-conversation-title {
   margin: 0;
   font-size: 14px;
   font-weight: 600;
+  line-height: 1.2;
+  color: var(--text-normal);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0; /* Allow the flex item to shrink below content size */
 }
 
 .claudian-logo {
