@@ -21,6 +21,7 @@ import type { HistoryConversationStatus } from './controllers/ConversationContro
 import { MentionCacheCoordinator } from './services/MentionCacheCoordinator';
 import {
   getTabProviderId,
+  getTabTitle,
   onProviderAvailabilityChanged,
   sendTabInputMessageFromExplicitEnterShortcut,
   updatePlanModeUI,
@@ -53,6 +54,7 @@ export class ClaudianView extends ItemView {
   // DOM Elements
   private viewContainerEl: HTMLElement | null = null;
   private logoEl: HTMLElement | null = null;
+  private conversationTitleEl: HTMLElement | null = null;
   private newTabButtonEl: HTMLElement | null = null;
 
   // Header elements
@@ -219,6 +221,7 @@ export class ClaudianView extends ItemView {
           this.updateInputLocation();
           this.persistTabState();
           this.syncProviderBrandColor();
+          this.syncHeaderTitle();
         },
         onTabClosed: () => {
           this.updateTabBar();
@@ -230,13 +233,17 @@ export class ClaudianView extends ItemView {
           this.updateTabBar();
           this.updateHistoryDropdown();
         },
-        onTabTitleChanged: () => this.updateTabBar(),
+        onTabTitleChanged: () => {
+          this.updateTabBar();
+          this.syncHeaderTitle();
+        },
         onTabAttentionChanged: () => this.updateTabBar(),
         onTabConversationChanged: () => {
           this.updateTabBar();
           this.updateHistoryDropdown();
           this.persistTabState();
           this.syncProviderBrandColor();
+          this.syncHeaderTitle();
         },
         onTabProviderChanged: () => {
           this.updateTabBar();
@@ -253,6 +260,7 @@ export class ClaudianView extends ItemView {
     this.wireEventHandlers();
     await this.restoreOrCreateTabs();
     this.syncProviderBrandColor();
+    this.syncHeaderTitle();
     this.attachNavRowContentToInputFooter();
     this.updateInputLocation();
     this.updateTabBarVisibility();
@@ -292,7 +300,10 @@ export class ClaudianView extends ItemView {
     this.logoEl = titleEl.createSpan({ cls: 'claudian-logo' });
     this.syncHeaderLogo(DEFAULT_CHAT_PROVIDER_ID);
 
-    titleEl.createEl('h4', { text: 'Claudian', cls: 'claudian-title-text' });
+    this.conversationTitleEl = titleEl.createEl('h4', {
+      text: 'Claudian',
+      cls: 'claudian-title-text claudian-conversation-title',
+    });
   }
 
   /**
@@ -507,6 +518,13 @@ export class ClaudianView extends ItemView {
     const providerId = activeTab ? getTabProviderId(activeTab, this.plugin) : DEFAULT_CHAT_PROVIDER_ID;
     this.viewContainerEl.dataset.provider = providerId;
     this.syncHeaderLogo(providerId);
+  }
+
+  /** Updates the header title text to match the active tab's conversation title. */
+  private syncHeaderTitle(): void {
+    if (!this.conversationTitleEl) return;
+    const activeTab = this.tabManager?.getActiveTab();
+    this.conversationTitleEl.setText(activeTab ? getTabTitle(activeTab, this.plugin) : 'Claudian');
   }
 
   /** Rebuilds the header logo SVG to match the given provider. */
