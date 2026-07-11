@@ -69,6 +69,9 @@ type HistoryRenderOptions = {
 export class ConversationController {
   private deps: ConversationControllerDeps;
   private callbacks: ConversationCallbacks;
+  // Per-conversation input drafts, stashed on switch/new-chat so switching
+  // back restores the unsent text. Session-scoped (not persisted to disk).
+  private draftByConversation = new Map<string, string>();
 
   constructor(deps: ConversationControllerDeps, callbacks: ConversationCallbacks = {}) {
     this.deps = deps;
@@ -100,6 +103,9 @@ export class ConversationController {
     state.isCreatingConversation = true;
 
     try {
+      // Capture the draft of the conversation we're leaving before any state
+      // reset, so switching back to it later restores the unsent input.
+      this.stashInputDraft();
       this.deps.dismissPendingInlinePrompts?.();
 
       if (force && state.isStreaming) {
@@ -259,10 +265,12 @@ export class ConversationController {
 
       await this.deps.ensureServiceForConversation?.(conversation);
 
-      this.deps.getInputEl().value = '';
+      // Stash the draft of the conversation we're leaving; restored on switch-back.
+      this.stashInputDraft();
       this.deps.clearQueuedMessage();
 
       this.restoreConversation(conversation);
+      this.restoreInputDraft(conversation.id);
 
       this.deps.getHistoryDropdown()?.removeClass('visible');
       this.updateWelcomeVisibility();
@@ -518,6 +526,21 @@ export class ConversationController {
       // Session with messages: restore exactly what was saved
       externalContextSelector.setExternalContexts(savedPaths || []);
     }
+  }
+
+  /**
+   * Captures the current input text under the active conversation id, so the
+   * draft survives switching away and can be restored on switch-back.
+   */
+  private stashInputDraft(): void {
+    const id = this.deps.state.currentConversationId;
+    if (!id) return;
+    this.draftByConversation.set(id, this.deps.getInputEl().value);
+  }
+
+  /** Restores the cached draft for a conversation, clearing the input when none is cached. */
+  private restoreInputDraft(id: string): void {
+    this.deps.getInputEl().value = this.draftByConversation.get(id) ?? '';
   }
 
   // ============================================
@@ -807,6 +830,7 @@ export class ConversationController {
     if (state.isStreaming) return;
 
     await plugin.deleteConversation(conversationId);
+    this.draftByConversation.delete(conversationId);
     options.onRerender();
 
     if (conversationId === state.currentConversationId) {
