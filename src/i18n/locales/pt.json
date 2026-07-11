@@ -70,7 +70,15 @@
     },
     "history": {
       "searchPlaceholder": "Pesquisar conversas...",
-      "noResults": "Nenhuma conversa correspondente"
+      "noResults": "Nenhuma conversa correspondente",
+      "linkedTo": "Vinculado a: {note}",
+      "clearFilter": "Limpar filtro",
+      "noLinked": "Nenhuma conversa vinculada a esta nota",
+      "changeNote": "Alterar nota vinculada...",
+      "unlinkNote": "Desvincular nota"
+    },
+    "peek": {
+      "linked": "{count} conversas vinculadas a {note}"
     }
   },
   "settings": {

@@ -70,7 +70,15 @@
     },
     "history": {
       "searchPlaceholder": "대화 검색...",
-      "noResults": "일치하는 대화가 없습니다"
+      "noResults": "일치하는 대화가 없습니다",
+      "linkedTo": "연결됨: {note}",
+      "clearFilter": "필터 지우기",
+      "noLinked": "이 노트에 연결된 대화가 없습니다",
+      "changeNote": "연결된 노트 변경...",
+      "unlinkNote": "노트 연결 해제"
+    },
+    "peek": {
+      "linked": "{count}개의 대화가 {note}에 연결됨"
     }
   },
   "settings": {

@@ -10,12 +10,14 @@ import { ProviderRegistry } from '../../core/providers/ProviderRegistry';
 import { ProviderSettingsCoordinator } from '../../core/providers/ProviderSettingsCoordinator';
 import { type AppTabManagerState, DEFAULT_CHAT_PROVIDER_ID, type ProviderId } from '../../core/providers/types';
 import { VIEW_TYPE_CLAUDIAN } from '../../core/types';
+import { t } from '../../i18n/i18n';
 import { createProviderIconSvg } from '../../shared/icons';
 import {
   cancelScheduledAnimationFrame,
   scheduleAnimationFrame,
   type ScheduledAnimationFrame,
 } from '../../utils/animationFrame';
+import { getVaultPath, normalizePathForVault } from '../../utils/path';
 import type { FeatureHost } from '../FeatureHost';
 import type { HistoryConversationStatus } from './controllers/ConversationController';
 import { MentionCacheCoordinator } from './services/MentionCacheCoordinator';
@@ -29,6 +31,7 @@ import {
 import { TabBar } from './tabs/TabBar';
 import { TabManager } from './tabs/TabManager';
 import type { TabData, TabId } from './tabs/types';
+import { getConversationsLinkedToNote } from './utils/conversationFilters';
 import { recalculateUsageForModel } from './utils/usageInfo';
 
 type LoadableView = {
@@ -59,6 +62,14 @@ export class ClaudianView extends ItemView {
 
   // Header elements
   private historyDropdown: HTMLElement | null = null;
+
+  // Peek banner: passive "conversations linked to active note" discovery surface.
+  private peekBannerEl: HTMLElement | null = null;
+  private peekBannerTextEl: HTMLElement | null = null;
+  // Active note filter applied when the peek opens the history dropdown. Cleared on
+  // button-open so reopening via the history button always shows the full list.
+  private noteFilter: string | null = null;
+  private peekRefreshTimer: number | null = null;
 
   // Event refs for cleanup
   private eventRefs: EventRef[] = [];
@@ -193,6 +204,11 @@ export class ClaudianView extends ItemView {
     const header = this.viewContainerEl.createDiv({ cls: 'claudian-header' });
     this.buildHeader(header);
 
+    // Peek banner sits between the header and tab content; a direct child of
+    // viewContainerEl so nav-row re-parenting never touches it.
+    this.peekBannerEl = this.viewContainerEl.createDiv({ cls: 'claudian-peek-banner' });
+    this.buildPeekBanner();
+
     this.navRowContent = this.buildNavRowContent();
     this.tabContentEl = this.viewContainerEl.createDiv({ cls: 'claudian-tab-content-container' });
     this.buildInputFooter();
@@ -222,6 +238,7 @@ export class ClaudianView extends ItemView {
           this.persistTabState();
           this.syncProviderBrandColor();
           this.syncHeaderTitle();
+          this.schedulePeekRefresh();
         },
         onTabClosed: () => {
           this.updateTabBar();
@@ -244,6 +261,7 @@ export class ClaudianView extends ItemView {
           this.persistTabState();
           this.syncProviderBrandColor();
           this.syncHeaderTitle();
+          this.schedulePeekRefresh();
         },
         onTabProviderChanged: () => {
           this.updateTabBar();
@@ -265,12 +283,18 @@ export class ClaudianView extends ItemView {
     this.updateInputLocation();
     this.updateTabBarVisibility();
     this.tabManager?.primeProviderRuntime();
+    this.updatePeekBanner();
   }
 
   async onClose() {
     if (this.pendingTabBarUpdate !== null) {
       cancelScheduledAnimationFrame(this.pendingTabBarUpdate);
       this.pendingTabBarUpdate = null;
+    }
+
+    if (this.peekRefreshTimer !== null) {
+      window.clearTimeout(this.peekRefreshTimer);
+      this.peekRefreshTimer = null;
     }
 
     for (const ref of this.eventRefs) {
@@ -555,6 +579,9 @@ export class ClaudianView extends ItemView {
     if (isVisible) {
       this.historyDropdown.removeClass('visible');
     } else {
+      // Opening via the history button always shows the full list; only the peek
+      // banner sets noteFilter before opening.
+      this.noteFilter = null;
       this.updateHistoryDropdown();
       this.historyDropdown.addClass('visible');
     }
@@ -573,6 +600,12 @@ export class ClaudianView extends ItemView {
         onOpenConversationInNewTab: (id, activate) =>
           this.openHistoryConversationInNewTab(id, activate),
         getConversationStatus: (id) => this.getHistoryConversationStatus(id),
+        noteFilter: this.noteFilter,
+        onClearNoteFilter: () => {
+          this.noteFilter = null;
+          this.updateHistoryDropdown();
+        },
+        onListMutated: () => this.schedulePeekRefresh(),
       });
     }
   }
@@ -639,6 +672,70 @@ export class ClaudianView extends ItemView {
   private getHistoryTabIndex(tab: TabData): number | undefined {
     const index = this.tabManager?.getAllTabs().findIndex(candidate => candidate.id === tab.id) ?? -1;
     return index >= 0 ? index + 1 : undefined;
+  }
+
+  // ============================================
+  // Peek Banner
+  // ============================================
+
+  private buildPeekBanner(): void {
+    if (!this.peekBannerEl) return;
+    const iconEl = this.peekBannerEl.createSpan({ cls: 'claudian-peek-banner-icon' });
+    setIcon(iconEl, 'link');
+    this.peekBannerTextEl = this.peekBannerEl.createSpan({ cls: 'claudian-peek-banner-text' });
+    this.peekBannerEl.addEventListener('click', (e) => this.handlePeekClick(e));
+  }
+
+  /** Active note path normalized to vault-relative form for byte-identical currentNote comparison. */
+  private getActiveNotePath(): string | null {
+    const file = this.plugin.app.workspace.getActiveFile();
+    if (!file) return null;
+    return normalizePathForVault(file.path, getVaultPath(this.plugin.app));
+  }
+
+  private updatePeekBanner(): void {
+    if (!this.peekBannerEl || !this.peekBannerTextEl) return;
+
+    const activeNote = this.getActiveNotePath();
+    if (!activeNote) {
+      this.peekBannerEl.removeClass('visible');
+      return;
+    }
+
+    const count = getConversationsLinkedToNote(
+      this.plugin.getConversationList(),
+      activeNote,
+    ).length;
+    if (count === 0) {
+      this.peekBannerEl.removeClass('visible');
+      return;
+    }
+
+    const basename = activeNote.split('/').pop() || activeNote;
+    this.peekBannerTextEl.setText(t('chat.peek.linked', { count, note: basename }));
+    this.peekBannerEl.addClass('visible');
+  }
+
+  /** Debounced refresh so rapid note switching only repaints the label once. */
+  private schedulePeekRefresh(): void {
+    if (this.peekRefreshTimer !== null) {
+      window.clearTimeout(this.peekRefreshTimer);
+    }
+    this.peekRefreshTimer = window.setTimeout(() => {
+      this.peekRefreshTimer = null;
+      this.updatePeekBanner();
+    }, 250);
+  }
+
+  private handlePeekClick(e: MouseEvent): void {
+    // Stop propagation so the document-click handler doesn't immediately close
+    // the dropdown we're about to open.
+    e.stopPropagation();
+    const activeNote = this.getActiveNotePath();
+    if (!activeNote) return;
+    this.noteFilter = activeNote;
+    this.updateHistoryDropdown();
+    this.historyDropdown?.addClass('visible');
   }
 
   // ============================================
@@ -731,6 +828,7 @@ export class ClaudianView extends ItemView {
         if (file) {
           this.tabManager?.getActiveTab()?.ui.fileContextManager?.handleFileOpen(file);
         }
+        this.schedulePeekRefresh();
       })
     );
 
