@@ -240,7 +240,65 @@ describe('ConversationController', () => {
       });
     });
 
-    describe('Welcome visibility', () => {
+    describe('Input draft preservation', () => {
+    it('should preserve each conversation draft across switches', async () => {
+      deps.state.currentConversationId = 'conv-a';
+      const inputEl = deps.getInputEl();
+
+      // conv-a has a draft; switching to conv-b clears the input
+      inputEl.value = 'draft A';
+      (deps.plugin.switchConversation as jest.Mock).mockResolvedValueOnce({
+        id: 'conv-b', messages: [], sessionId: null,
+      });
+      await controller.switchTo('conv-b');
+      expect(inputEl.value).toBe('');
+
+      // user types in conv-b, switches back to conv-a -> draft A restored
+      inputEl.value = 'draft B';
+      (deps.plugin.switchConversation as jest.Mock).mockResolvedValueOnce({
+        id: 'conv-a', messages: [], sessionId: null,
+      });
+      await controller.switchTo('conv-a');
+      expect(inputEl.value).toBe('draft A');
+
+      // back to conv-b -> draft B restored
+      (deps.plugin.switchConversation as jest.Mock).mockResolvedValueOnce({
+        id: 'conv-b', messages: [], sessionId: null,
+      });
+      await controller.switchTo('conv-b');
+      expect(inputEl.value).toBe('draft B');
+    });
+
+    it('should stash the draft of the conversation left when starting a new chat', async () => {
+      deps.state.currentConversationId = 'conv-a';
+      const inputEl = deps.getInputEl();
+      inputEl.value = 'unsent draft';
+
+      await controller.createNew();
+
+      (deps.plugin.switchConversation as jest.Mock).mockResolvedValue({
+        id: 'conv-a', messages: [], sessionId: null,
+      });
+      await controller.switchTo('conv-a');
+
+      expect(inputEl.value).toBe('unsent draft');
+    });
+
+    it('should clear input when switching to a conversation with no cached draft', async () => {
+      deps.state.currentConversationId = 'conv-a';
+      const inputEl = deps.getInputEl();
+      inputEl.value = 'some unsent text';
+
+      (deps.plugin.switchConversation as jest.Mock).mockResolvedValue({
+        id: 'conv-b', messages: [], sessionId: null,
+      });
+      await controller.switchTo('conv-b');
+
+      expect(inputEl.value).toBe('');
+    });
+  });
+
+  describe('Welcome visibility', () => {
       it('should hide welcome when messages exist', () => {
         deps.state.messages = [{ id: '1', role: 'user', content: 'test', timestamp: Date.now() }];
         const welcomeEl = deps.getWelcomeEl()!;
