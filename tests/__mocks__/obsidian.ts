@@ -207,6 +207,24 @@ export class Modal {
   onClose = jest.fn();
 }
 
+export class FuzzySuggestModal<T = unknown> {
+  app: any;
+
+  constructor(app: any) {
+    this.app = app;
+  }
+
+  getItems(): T[] { return []; }
+  getItemText(_item: T): string { return ''; }
+  onChooseItem(_item: T, _evt: MouseEvent | KeyboardEvent): void {}
+  setPlaceholder(_text: string): void {}
+  setInstructions(_instructions: unknown): void {}
+  open = jest.fn();
+  close = jest.fn();
+  onOpen = jest.fn();
+  onClose = jest.fn();
+}
+
 class MockMenuItem {
   title = '';
   icon = '';

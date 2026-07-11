@@ -64,6 +64,12 @@ type HistoryRenderOptions = {
   onOpenConversationInNewTab?: (id: string, activate?: boolean) => Promise<void>;
   getConversationOpenState?: (id: string) => HistoryConversationOpenState;
   onRerender: () => void;
+  /** When set, the list is restricted to conversations whose currentNote exactly matches. */
+  noteFilter?: string | null;
+  /** Clears an active noteFilter and re-renders (fired by the filter chip's ×). */
+  onClearNoteFilter?: () => void;
+  /** Fired when the underlying list mutates (delete) so out-of-dropdown UI like the peek can refresh. */
+  onListMutated?: () => void;
 };
 
 export class ConversationController {
@@ -449,6 +455,31 @@ export class ConversationController {
   }
 
   /**
+   * Re-links the active conversation to a different note (or unlinks it). Updates the
+   * chip in-memory immediately and persists only `currentNote` via a surgical
+   * updateConversation — deliberately avoiding save(), which would re-persist messages,
+   * rebuild session updates, and consume a pending session-invalidation. At entry point
+   * (no active conversation) only the in-memory chip is touched; it is picked up on the
+   * first send's save().
+   */
+  async reassociateCurrentNote(newNotePath: string | null): Promise<void> {
+    const { plugin, state } = this.deps;
+    const fileCtx = this.deps.getFileContextManager();
+    if (!fileCtx) return;
+
+    if (newNotePath === null) {
+      fileCtx.clearCurrentNote();
+    } else {
+      fileCtx.setCurrentNote(newNotePath);
+    }
+
+    const id = state.currentConversationId;
+    if (id) {
+      await plugin.updateConversation(id, { currentNote: newNotePath ?? undefined });
+    }
+  }
+
+  /**
    * Shared logic for restoring a conversation into the current tab.
    * Used by both loadActive() and switchTo() to avoid duplication.
    */
@@ -585,6 +616,23 @@ export class ConversationController {
     const dropdownHeader = container.createDiv({ cls: 'claudian-history-header' });
     dropdownHeader.createSpan({ text: 'Conversations' });
 
+    // Note-filter chip — shown when the dropdown was opened pre-filtered to a note
+    // (e.g. via the peek banner). Exact match on currentNote; the × clears the filter.
+    if (options.noteFilter) {
+      const filterRow = container.createDiv({ cls: 'claudian-history-filter' });
+      const chip = filterRow.createDiv({ cls: 'claudian-history-filter-chip' });
+      const label = chip.createSpan({ cls: 'claudian-history-filter-label' });
+      label.setText(t('chat.history.linkedTo', { note: path.basename(options.noteFilter) }));
+      label.setAttribute('title', options.noteFilter);
+      const clearEl = chip.createSpan({ cls: 'claudian-history-filter-clear' });
+      clearEl.setText('×');
+      clearEl.setAttribute('aria-label', t('chat.history.clearFilter'));
+      clearEl.addEventListener('click', (e) => {
+        e.stopPropagation();
+        options.onClearNoteFilter?.();
+      });
+    }
+
     const allConversations = plugin.getConversationList();
 
     if (allConversations.length === 0) {
@@ -608,6 +656,11 @@ export class ConversationController {
       return (b.lastResponseAt ?? b.createdAt) - (a.lastResponseAt ?? a.createdAt);
     });
 
+    // Note-filter restricts the list to exact currentNote matches before search applies.
+    const baseConversations = options.noteFilter
+      ? sortedConversations.filter(conv => conv.currentNote === options.noteFilter)
+      : sortedConversations;
+
     const matchesSearch = (conv: ConversationMeta, query: string): boolean => {
       if (!query) return true;
       if (conv.title.toLowerCase().includes(query)) return true;
@@ -624,13 +677,17 @@ export class ConversationController {
 
       const normalizedQuery = query.trim().toLowerCase();
       const conversations = normalizedQuery
-        ? sortedConversations.filter(conv => matchesSearch(conv, normalizedQuery))
-        : sortedConversations;
+        ? baseConversations.filter(conv => matchesSearch(conv, normalizedQuery))
+        : baseConversations;
 
       if (conversations.length === 0) {
         list.createDiv({
           cls: 'claudian-history-empty',
-          text: normalizedQuery ? t('chat.history.noResults') : 'No conversations',
+          text: normalizedQuery
+            ? t('chat.history.noResults')
+            : options.noteFilter
+              ? t('chat.history.noLinked')
+              : 'No conversations',
         });
         return;
       }
@@ -832,6 +889,7 @@ export class ConversationController {
     await plugin.deleteConversation(conversationId);
     this.draftByConversation.delete(conversationId);
     options.onRerender();
+    options.onListMutated?.();
 
     if (conversationId === state.currentConversationId) {
       await this.loadActive();

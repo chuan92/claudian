@@ -70,7 +70,15 @@
     },
     "history": {
       "searchPlaceholder": "Поиск бесед...",
-      "noResults": "Нет подходящих бесед"
+      "noResults": "Нет подходящих бесед",
+      "linkedTo": "Связано с: {note}",
+      "clearFilter": "Сбросить фильтр",
+      "noLinked": "Нет бесед, связанных с этой заметкой",
+      "changeNote": "Изменить связанную заметку...",
+      "unlinkNote": "Отвязать заметку"
+    },
+    "peek": {
+      "linked": "{count} бесед связаны с {note}"
     }
   },
   "settings": {

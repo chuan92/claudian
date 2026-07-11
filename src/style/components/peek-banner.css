@@ -1,0 +1,43 @@
+/* Peek banner: passive "conversations linked to active note" discovery surface.
+   Sits between the header and the tab content. Clicking opens the history
+   dropdown pre-filtered to the active note. Hidden when no linked conversations
+   so switching notes only ever refreshes this single label, never the chat. */
+.claudian-peek-banner {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  font-size: 12px;
+  line-height: 1.2;
+  color: var(--text-muted);
+  background: var(--background-secondary);
+  border-bottom: 1px solid var(--background-modifier-border);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.claudian-peek-banner.visible {
+  display: flex;
+}
+
+.claudian-peek-banner:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.claudian-peek-banner-icon {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.claudian-peek-banner-icon svg {
+  width: 13px;
+  height: 13px;
+}
+
+.claudian-peek-banner-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

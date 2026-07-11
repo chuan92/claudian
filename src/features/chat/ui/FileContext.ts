@@ -1,5 +1,7 @@
 import type { App, EventRef } from 'obsidian';
-import { Notice, TFile } from 'obsidian';
+import { FuzzySuggestModal, Menu, Notice, TFile } from 'obsidian';
+
+import { t } from '@/i18n/i18n';
 
 import type { McpServerManager } from '../../../core/mcp/McpServerManager';
 import type { AgentMentionProvider } from '../../../shared/mention/MentionDropdownController';
@@ -22,6 +24,8 @@ export interface FileContextCallbacks {
   getExternalContexts?: () => string[];
   /** Called when an agent is selected from the @ mention dropdown. */
   onAgentMentionSelect?: (agentId: string) => void;
+  /** Called when the user changes/unlinks the note association via the chip's ✎ menu. */
+  onNoteLinkChanged?: (path: string | null) => void;
 }
 
 export class FileContextManager {
@@ -82,6 +86,7 @@ export class FileContextManager {
           }
         })();
       },
+      onEditLink: (filePath, evt) => this.openNoteLinkMenu(filePath, evt),
     });
 
     this.mentionDropdown = new MentionDropdownController(
@@ -157,6 +162,16 @@ export class FileContextManager {
     this.currentNotePath = notePath;
     if (notePath) {
       this.state.attachFile(notePath);
+    }
+    this.refreshCurrentNoteChip();
+  }
+
+  /** Clears the current note association, detaching the file from state (mirrors the × remove handler). */
+  clearCurrentNote(): void {
+    const previous = this.currentNotePath;
+    this.currentNotePath = null;
+    if (previous) {
+      this.state.detachFile(previous);
     }
     this.refreshCurrentNoteChip();
   }
@@ -272,6 +287,27 @@ export class FileContextManager {
     this.callbacks.onChipsChanged?.();
   }
 
+  /** Opens the change/unlink-note menu at the ✎ click position. */
+  private openNoteLinkMenu(_filePath: string, evt: MouseEvent): void {
+    const menu = new Menu();
+    menu.addItem(item => {
+      item.setTitle(t('chat.history.changeNote')).setIcon('link').onClick(() => this.openNotePicker());
+    });
+    menu.addItem(item => {
+      item.setTitle(t('chat.history.unlinkNote')).setIcon('unlink').onClick(() => {
+        this.callbacks.onNoteLinkChanged?.(null);
+      });
+    });
+    menu.showAtMouseEvent(evt);
+  }
+
+  private openNotePicker(): void {
+    const files = this.app.vault.getMarkdownFiles();
+    new NotePickerModal(this.app, files, (file) => {
+      this.callbacks.onNoteLinkChanged?.(file.path);
+    }).open();
+  }
+
   private handleFileRenamed(oldPath: string, newPath: string) {
     const normalizedOld = this.normalizePathForVault(oldPath);
     const normalizedNew = this.normalizePathForVault(newPath);
@@ -377,9 +413,32 @@ export class FileContextManager {
     }
 
     if (cache.tags) {
-      fileTags.push(...cache.tags.map(t => t.tag.replace(/^#/, '')));
+      fileTags.push(...cache.tags.map(tagEntry => tagEntry.tag.replace(/^#/, '')));
     }
 
     return fileTags.some(tag => excludedTags.includes(tag));
+  }
+}
+
+/** Vault-note picker for the "Change linked note" menu action. */
+class NotePickerModal extends FuzzySuggestModal<TFile> {
+  constructor(
+    app: App,
+    private readonly files: TFile[],
+    private readonly onPick: (file: TFile) => void,
+  ) {
+    super(app);
+  }
+
+  getItems(): TFile[] {
+    return this.files;
+  }
+
+  getItemText(file: TFile): string {
+    return file.path;
+  }
+
+  onChooseItem(file: TFile): void {
+    this.onPick(file);
   }
 }

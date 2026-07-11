@@ -52,6 +52,14 @@ export type TranslationKey =
   // Chat - History
   | 'chat.history.searchPlaceholder'
   | 'chat.history.noResults'
+  | 'chat.history.linkedTo'
+  | 'chat.history.clearFilter'
+  | 'chat.history.noLinked'
+  | 'chat.history.changeNote'
+  | 'chat.history.unlinkNote'
+
+  // Chat - Peek
+  | 'chat.peek.linked'
 
   // Chat - Fork
   | 'chat.fork.ariaLabel'
