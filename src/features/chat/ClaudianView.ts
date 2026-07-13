@@ -65,6 +65,10 @@ export class ClaudianView extends ItemView {
   // button-open so reopening via the history button always shows the full list.
   private noteFilter: string | null = null;
   private peekRefreshTimer: number | null = null;
+  // Note for which the single-link banner has been consumed by opening its linked
+  // conversation. Cleared whenever the active note changes so switching notes restores
+  // the discovery prompt.
+  private peekConsumedNote: string | null = null;
 
   // Event refs for cleanup
   private eventRefs: EventRef[] = [];
@@ -593,19 +597,29 @@ export class ClaudianView extends ItemView {
   }
 
   private async openHistoryConversation(conversationId: string): Promise<void> {
+    // Mark the note-filtered selection as consumed so a single linked conversation
+    // stops being advertised after the user has already opened it from the banner.
+    if (this.noteFilter) {
+      this.peekConsumedNote = this.noteFilter;
+    }
     await this.tabManager?.openConversation(conversationId);
     this.historyDropdown?.removeClass('visible');
+    this.updatePeekBanner();
   }
 
   private async openHistoryConversationInNewTab(
     conversationId: string,
     activate = true,
   ): Promise<void> {
+    if (this.noteFilter) {
+      this.peekConsumedNote = this.noteFilter;
+    }
     await this.tabManager?.openConversation(conversationId, {
       preferNewTab: true,
       activate,
     });
     this.historyDropdown?.removeClass('visible');
+    this.updatePeekBanner();
   }
 
   private getHistoryConversationOpenState(conversationId: string): HistoryConversationOpenState {
@@ -654,6 +668,11 @@ export class ClaudianView extends ItemView {
     if (!this.peekBannerEl || !this.peekBannerTextEl) return;
 
     const activeNote = this.getActiveNotePath();
+    // Reset consumption when the user switches to a different note so the banner
+    // remains a discovery surface for the new context.
+    if (activeNote !== this.peekConsumedNote) {
+      this.peekConsumedNote = null;
+    }
     if (!activeNote) {
       this.peekBannerEl.removeClass('visible');
       return;
@@ -664,6 +683,15 @@ export class ClaudianView extends ItemView {
       activeNote,
     ).length;
     if (count === 0) {
+      this.peekBannerEl.removeClass('visible');
+      return;
+    }
+
+    // Show when there are multiple linked conversations, or a single one that the
+    // user has not already opened from the banner (the bottom chip already shows
+    // the current conversation's linked note in that case).
+    const shouldShow = count > 1 || (count === 1 && this.peekConsumedNote !== activeNote);
+    if (!shouldShow) {
       this.peekBannerEl.removeClass('visible');
       return;
     }
