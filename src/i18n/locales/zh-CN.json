@@ -73,9 +73,7 @@
       "noResults": "没有匹配对话",
       "linkedTo": "关联到：{note}",
       "clearFilter": "清除筛选",
-      "noLinked": "没有关联到此笔记的对话",
-      "changeNote": "更改关联笔记...",
-      "unlinkNote": "取消关联笔记"
+      "noLinked": "没有关联到此笔记的对话"
     },
     "peek": {
       "linked": "{count} 个对话关联到 {note}"

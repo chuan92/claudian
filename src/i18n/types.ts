@@ -55,8 +55,6 @@ export type TranslationKey =
   | 'chat.history.linkedTo'
   | 'chat.history.clearFilter'
   | 'chat.history.noLinked'
-  | 'chat.history.changeNote'
-  | 'chat.history.unlinkNote'
 
   // Chat - Peek
   | 'chat.peek.linked'

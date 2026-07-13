@@ -73,9 +73,7 @@
       "noResults": "一致する会話がありません",
       "linkedTo": "リンク先: {note}",
       "clearFilter": "フィルターを解除",
-      "noLinked": "このノートにリンクされた会話はありません",
-      "changeNote": "リンク先ノートを変更...",
-      "unlinkNote": "ノートのリンクを解除"
+      "noLinked": "このノートにリンクされた会話はありません"
     },
     "peek": {
       "linked": "{count}件の会話が{note}にリンク"

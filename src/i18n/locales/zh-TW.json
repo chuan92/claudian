@@ -73,9 +73,7 @@
       "noResults": "沒有符合的對話",
       "linkedTo": "關聯到：{note}",
       "clearFilter": "清除篩選",
-      "noLinked": "沒有關聯到此筆記的對話",
-      "changeNote": "更改關聯筆記...",
-      "unlinkNote": "取消關聯筆記"
+      "noLinked": "沒有關聯到此筆記的對話"
     },
     "peek": {
       "linked": "{count} 個對話關聯到 {note}"

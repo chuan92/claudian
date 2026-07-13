@@ -1,12 +1,8 @@
 import { setIcon } from 'obsidian';
 
-import { t } from '@/i18n/i18n';
-
 export interface FileChipsViewCallbacks {
   onRemoveAttachment: (path: string) => void;
   onOpenFile: (path: string) => void;
-  /** Opens the change/unlink-note menu (fired by the chip's ✎ affordance). */
-  onEditLink: (filePath: string, evt: MouseEvent) => void;
 }
 
 export class FileChipsView {
@@ -61,23 +57,14 @@ export class FileChipsView {
     removeEl.setText('\u00D7');
     removeEl.setAttribute('aria-label', 'Remove');
 
-    const editEl = chipEl.createSpan({ cls: 'claudian-file-chip-edit' });
-    setIcon(editEl, 'pencil');
-    editEl.setAttribute('aria-label', t('chat.history.changeNote'));
-
     chipEl.addEventListener('click', (e) => {
-      if (!(e.target as HTMLElement).closest('.claudian-file-chip-remove, .claudian-file-chip-edit')) {
+      if (!(e.target as HTMLElement).closest('.claudian-file-chip-remove')) {
         this.callbacks.onOpenFile(filePath);
       }
     });
 
     removeEl.addEventListener('click', () => {
       onRemove();
-    });
-
-    editEl.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this.callbacks.onEditLink(filePath, e);
     });
   }
 }

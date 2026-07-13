@@ -179,30 +179,6 @@
   color: var(--text-normal);
 }
 
-/* "✎" edit affordance — opens the change/unlink-note menu. Mirrors the remove
-   button's metrics so both sit cleanly at the chip's trailing edge. */
-.claudian-file-chip-edit {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  cursor: pointer;
-  color: var(--text-muted);
-  transition: background 0.15s ease, color 0.15s ease;
-}
-
-.claudian-file-chip-edit svg {
-  width: 12px;
-  height: 12px;
-}
-
-.claudian-file-chip-edit:hover {
-  background: var(--background-modifier-hover);
-  color: var(--text-normal);
-}
-
 .claudian-file-chip:hover {
   background: var(--background-modifier-hover);
 }

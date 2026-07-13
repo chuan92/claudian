@@ -298,37 +298,6 @@ describe('ConversationController', () => {
     });
   });
 
-  describe('Note reassociation', () => {
-    it('persists a new linked note via surgical updateConversation', async () => {
-      deps.state.currentConversationId = 'conv-a';
-
-      await controller.reassociateCurrentNote('folder/new.md');
-
-      expect(deps.getFileContextManager()?.setCurrentNote).toHaveBeenCalledWith('folder/new.md');
-      expect(deps.getFileContextManager()?.clearCurrentNote).not.toHaveBeenCalled();
-      expect(deps.plugin.updateConversation).toHaveBeenCalledWith('conv-a', { currentNote: 'folder/new.md' });
-    });
-
-    it('does not persist when there is no active conversation (entry point)', async () => {
-      deps.state.currentConversationId = null;
-
-      await controller.reassociateCurrentNote('folder/new.md');
-
-      expect(deps.getFileContextManager()?.setCurrentNote).toHaveBeenCalledWith('folder/new.md');
-      expect(deps.plugin.updateConversation).not.toHaveBeenCalled();
-    });
-
-    it('clears and detaches the note when reassociating to null', async () => {
-      deps.state.currentConversationId = 'conv-a';
-
-      await controller.reassociateCurrentNote(null);
-
-      expect(deps.getFileContextManager()?.clearCurrentNote).toHaveBeenCalled();
-      expect(deps.getFileContextManager()?.setCurrentNote).not.toHaveBeenCalled();
-      expect(deps.plugin.updateConversation).toHaveBeenCalledWith('conv-a', { currentNote: undefined });
-    });
-  });
-
   describe('Welcome visibility', () => {
       it('should hide welcome when messages exist', () => {
         deps.state.messages = [{ id: '1', role: 'user', content: 'test', timestamp: Date.now() }];

@@ -691,9 +691,6 @@ function initializeContextManagers(tab: TabData, plugin: ClaudianPlugin): void {
         tab.renderer?.scrollToBottomIfNeeded();
       },
       getExternalContexts: () => tab.ui.externalContextSelector?.getExternalContexts() || [],
-      onNoteLinkChanged: (path) => {
-        void tab.controllers.conversationController?.reassociateCurrentNote(path);
-      },
     },
     dom.inputContainerEl
   );

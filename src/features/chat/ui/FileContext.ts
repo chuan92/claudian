@@ -1,7 +1,5 @@
 import type { App, EventRef } from 'obsidian';
-import { FuzzySuggestModal, Menu, Notice, TFile } from 'obsidian';
-
-import { t } from '@/i18n/i18n';
+import { MarkdownView, Notice, TFile } from 'obsidian';
 
 import type { McpServerManager } from '../../../core/mcp/McpServerManager';
 import type { AgentMentionProvider } from '../../../shared/mention/MentionDropdownController';
@@ -24,8 +22,6 @@ export interface FileContextCallbacks {
   getExternalContexts?: () => string[];
   /** Called when an agent is selected from the @ mention dropdown. */
   onAgentMentionSelect?: (agentId: string) => void;
-  /** Called when the user changes/unlinks the note association via the chip's ✎ menu. */
-  onNoteLinkChanged?: (path: string | null) => void;
 }
 
 export class FileContextManager {
@@ -80,13 +76,20 @@ export class FileContextManager {
             return;
           }
           try {
-            await this.app.workspace.getLeaf().openFile(file);
+            const existingLeaf = this.app.workspace.getLeavesOfType('markdown').find(
+              (leaf) => leaf.view instanceof MarkdownView && leaf.view.file?.path === file.path
+            );
+            if (existingLeaf) {
+              this.app.workspace.setActiveLeaf(existingLeaf);
+              await this.app.workspace.revealLeaf(existingLeaf);
+            } else {
+              await this.app.workspace.getLeaf().openFile(file);
+            }
           } catch (error) {
             new Notice(`Failed to open file: ${error instanceof Error ? error.message : String(error)}`);
           }
         })();
       },
-      onEditLink: (filePath, evt) => this.openNoteLinkMenu(filePath, evt),
     });
 
     this.mentionDropdown = new MentionDropdownController(
@@ -287,27 +290,6 @@ export class FileContextManager {
     this.callbacks.onChipsChanged?.();
   }
 
-  /** Opens the change/unlink-note menu at the ✎ click position. */
-  private openNoteLinkMenu(_filePath: string, evt: MouseEvent): void {
-    const menu = new Menu();
-    menu.addItem(item => {
-      item.setTitle(t('chat.history.changeNote')).setIcon('link').onClick(() => this.openNotePicker());
-    });
-    menu.addItem(item => {
-      item.setTitle(t('chat.history.unlinkNote')).setIcon('unlink').onClick(() => {
-        this.callbacks.onNoteLinkChanged?.(null);
-      });
-    });
-    menu.showAtMouseEvent(evt);
-  }
-
-  private openNotePicker(): void {
-    const files = this.app.vault.getMarkdownFiles();
-    new NotePickerModal(this.app, files, (file) => {
-      this.callbacks.onNoteLinkChanged?.(file.path);
-    }).open();
-  }
-
   private handleFileRenamed(oldPath: string, newPath: string) {
     const normalizedOld = this.normalizePathForVault(oldPath);
     const normalizedNew = this.normalizePathForVault(newPath);
@@ -417,28 +399,5 @@ export class FileContextManager {
     }
 
     return fileTags.some(tag => excludedTags.includes(tag));
-  }
-}
-
-/** Vault-note picker for the "Change linked note" menu action. */
-class NotePickerModal extends FuzzySuggestModal<TFile> {
-  constructor(
-    app: App,
-    private readonly files: TFile[],
-    private readonly onPick: (file: TFile) => void,
-  ) {
-    super(app);
-  }
-
-  getItems(): TFile[] {
-    return this.files;
-  }
-
-  getItemText(file: TFile): string {
-    return file.path;
-  }
-
-  onChooseItem(file: TFile): void {
-    this.onPick(file);
   }
 }

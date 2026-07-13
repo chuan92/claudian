@@ -73,9 +73,7 @@
       "noResults": "Aucune conversation correspondante",
       "linkedTo": "Lié à : {note}",
       "clearFilter": "Effacer le filtre",
-      "noLinked": "Aucune conversation liée à cette note",
-      "changeNote": "Changer la note liée...",
-      "unlinkNote": "Détacher la note"
+      "noLinked": "Aucune conversation liée à cette note"
     },
     "peek": {
       "linked": "{count} conversations liées à {note}"

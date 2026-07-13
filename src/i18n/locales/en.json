@@ -73,9 +73,7 @@
       "noResults": "No matching conversations",
       "linkedTo": "Linked to: {note}",
       "clearFilter": "Clear filter",
-      "noLinked": "No conversations linked to this note",
-      "changeNote": "Change linked note...",
-      "unlinkNote": "Unlink note"
+      "noLinked": "No conversations linked to this note"
     },
     "peek": {
       "linked": "{count} conversations linked to {note}"

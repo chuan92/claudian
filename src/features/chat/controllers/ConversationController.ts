@@ -457,31 +457,6 @@ export class ConversationController {
   }
 
   /**
-   * Re-links the active conversation to a different note (or unlinks it). Updates the
-   * chip in-memory immediately and persists only `currentNote` via a surgical
-   * updateConversation — deliberately avoiding save(), which would re-persist messages,
-   * rebuild session updates, and consume a pending session-invalidation. At entry point
-   * (no active conversation) only the in-memory chip is touched; it is picked up on the
-   * first send's save().
-   */
-  async reassociateCurrentNote(newNotePath: string | null): Promise<void> {
-    const { plugin, state } = this.deps;
-    const fileCtx = this.deps.getFileContextManager();
-    if (!fileCtx) return;
-
-    if (newNotePath === null) {
-      fileCtx.clearCurrentNote();
-    } else {
-      fileCtx.setCurrentNote(newNotePath);
-    }
-
-    const id = state.currentConversationId;
-    if (id) {
-      await plugin.updateConversation(id, { currentNote: newNotePath ?? undefined });
-    }
-  }
-
-  /**
    * Shared logic for restoring a conversation into the current tab.
    * Used by both loadActive() and switchTo() to avoid duplication.
    */

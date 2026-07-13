@@ -73,9 +73,7 @@
       "noResults": "Keine passenden Unterhaltungen",
       "linkedTo": "Verlinkt mit: {note}",
       "clearFilter": "Filter löschen",
-      "noLinked": "Keine mit dieser Notiz verlinkten Gespräche",
-      "changeNote": "Verlinkte Notiz ändern...",
-      "unlinkNote": "Notiz-Verlinkung aufheben"
+      "noLinked": "Keine mit dieser Notiz verlinkten Gespräche"
     },
     "peek": {
       "linked": "{count} Gespräche verlinkt mit {note}"
