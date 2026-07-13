@@ -95,6 +95,8 @@ export interface InputControllerDeps {
   getInstructionRefineService: () => InstructionRefineService | null;
   getTitleGenerationService: () => TitleGenerationService | null;
   getStatusPanel: () => StatusPanel | null;
+  /** Fired when the active conversation's title is renamed. */
+  onTitleChanged?: () => void;
   getInputContainerEl: () => HTMLElement;
   generateId: () => string;
   resetInputHeight: () => void;
@@ -1142,6 +1144,7 @@ export class InputController {
     // Set immediate fallback title
     const fallbackTitle = conversationController.generateFallbackTitle(userContent);
     await plugin.renameConversation(state.currentConversationId, fallbackTitle);
+    this.deps.onTitleChanged?.();
 
     if (!plugin.settings.enableAutoTitleGeneration) {
       return;
@@ -1184,6 +1187,7 @@ export class InputController {
           await plugin.updateConversation(conversationId, { titleGenerationStatus: undefined });
         }
         conversationController.updateHistoryDropdown();
+        this.deps.onTitleChanged?.();
       },
       { notePath },
     ).catch(() => {

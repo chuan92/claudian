@@ -2424,6 +2424,35 @@ describe('ConversationController - regenerateTitle callback branches', () => {
 
     expect(deps.plugin.renameConversation).not.toHaveBeenCalled();
   });
+
+  it('should notify onTitleChanged when generation succeeds and renames the conversation', async () => {
+    const onTitleChanged = jest.fn();
+    (deps.plugin.getConversationById as jest.Mock).mockResolvedValue({
+      id: 'conv-1',
+      title: 'Original Title',
+      messages: [
+        { role: 'user', content: 'Hello' },
+        { role: 'assistant', content: 'Hi!' },
+      ],
+    });
+
+    mockTitleService.generateTitle.mockImplementation(
+      async (_convId: string, _user: string, callback: any) => {
+        (deps.plugin.getConversationById as jest.Mock).mockResolvedValue({
+          id: 'conv-1',
+          title: 'Original Title',
+          messages: [],
+        });
+        await callback('conv-1', { success: true, title: 'New Generated Title' });
+      }
+    );
+
+    controller = new ConversationController(deps, { onTitleChanged });
+    await controller.regenerateTitle('conv-1');
+
+    expect(deps.plugin.renameConversation).toHaveBeenCalledWith('conv-1', 'New Generated Title');
+    expect(onTitleChanged).toHaveBeenCalled();
+  });
 });
 
 describe('ConversationController - Rewind', () => {
