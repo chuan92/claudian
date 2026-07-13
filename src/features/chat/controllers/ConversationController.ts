@@ -28,6 +28,8 @@ export interface ConversationCallbacks {
   onNewConversation?: () => void;
   onConversationLoaded?: () => void;
   onConversationSwitched?: () => void;
+  /** Fired when the active conversation's title is renamed. */
+  onTitleChanged?: () => void;
 }
 
 export interface ConversationControllerDeps {
@@ -929,6 +931,7 @@ export class ConversationController {
         const newTitle = input.value.trim() || currentTitle;
         await this.deps.plugin.renameConversation(convId, newTitle);
         this.updateHistoryDropdown();
+        this.callbacks.onTitleChanged?.();
       } catch {
         new Notice('Failed to rename conversation');
       }
@@ -1103,6 +1106,7 @@ export class ConversationController {
           await plugin.updateConversation(convId, { titleGenerationStatus: undefined });
         }
         this.updateHistoryDropdown();
+        this.callbacks.onTitleChanged?.();
       }
     );
   }

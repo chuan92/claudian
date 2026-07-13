@@ -500,6 +500,7 @@ export function createTab(options: TabCreateOptions): TabData {
     onStreamingChanged,
     onAttentionChanged,
     onConversationIdChanged,
+    onTitleChanged,
   } = options;
 
   const id = tabId ?? generateTabId();
@@ -613,6 +614,7 @@ export function createTab(options: TabCreateOptions): TabData {
     },
     dom,
     renderer: null,
+    onTitleChanged,
   };
 
   return tab;
@@ -1493,6 +1495,7 @@ export function initializeTabControllers(
       },
       onConversationLoaded: () => ui.slashCommandDropdown?.resetSdkSkillsCache(),
       onConversationSwitched: () => ui.slashCommandDropdown?.resetSdkSkillsCache(),
+      onTitleChanged: () => tab.onTitleChanged?.(getTabTitle(tab, plugin)),
     }
   );
 
@@ -1517,6 +1520,7 @@ export function initializeTabControllers(
     getInstructionRefineService: () => services.instructionRefineService,
     getTitleGenerationService: () => services.titleGenerationService,
     getStatusPanel: () => ui.statusPanel,
+    onTitleChanged: () => tab.onTitleChanged?.(getTabTitle(tab, plugin)),
     generateId: generateMessageId,
     resetInputHeight: () => {
       autoResizeTextarea(dom.inputEl);

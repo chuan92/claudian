@@ -191,6 +191,7 @@ function createMockDeps(overrides: Partial<InputControllerDeps> = {}): InputCont
     getInstructionRefineService: () => null,
     getTitleGenerationService: () => null,
     getStatusPanel: () => null,
+    onTitleChanged: jest.fn(),
     generateId: () => `msg-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
     resetInputHeight: jest.fn(),
     getAgentService: () => mockAgentService as any,
@@ -1334,6 +1335,38 @@ describe('InputController - Message Queue', () => {
       expect(deps.plugin.renameConversation).toHaveBeenCalledWith('conv-1', 'Test Title');
     });
 
+    it('should notify onTitleChanged after setting the fallback title', async () => {
+      const mockTitleService = {
+        generateTitle: jest.fn().mockResolvedValue(undefined),
+        cancel: jest.fn(),
+      };
+
+      deps = createSendableDeps({
+        getTitleGenerationService: () => mockTitleService as any,
+      }, null);
+
+      ((deps as any).mockAgentService.query as jest.Mock).mockReturnValue(
+        createMockStream([
+          { type: 'text', content: 'Hello, how can I help?' },
+          { type: 'done' },
+        ])
+      );
+
+      (deps.streamController.handleStreamChunk as jest.Mock).mockImplementation(async (chunk, msg) => {
+        if (chunk.type === 'text') {
+          msg.content = chunk.content;
+        }
+      });
+
+      inputEl = deps.getInputEl() as ReturnType<typeof createMockInputEl>;
+      inputEl.value = 'Hello world';
+      controller = new InputController(deps);
+
+      await controller.sendMessage();
+
+      expect(deps.onTitleChanged).toHaveBeenCalled();
+    });
+
     it('should find messages by role, not by index', async () => {
       deps = createSendableDeps();
 
@@ -2387,6 +2420,7 @@ describe('InputController - Message Queue', () => {
       expect(deps.plugin.updateConversation).toHaveBeenCalledWith('conv-1', {
         titleGenerationStatus: 'success',
       });
+      expect(deps.onTitleChanged).toHaveBeenCalled();
     });
 
     it('should mark as failed when title generation callback fails', async () => {
