@@ -458,3 +458,146 @@ describe('ClaudianView Escape handling', () => {
     expect(result).toBeUndefined();
   });
 });
+
+describe('ClaudianView peek banner', () => {
+  function createPeekBannerHarness(options: {
+    activeNote: string | null;
+    conversations: Array<{
+      id: string;
+      currentNote?: string;
+    }>;
+    noteFilter?: string | null;
+    consumedNote?: string | null;
+  }): {
+    view: any;
+  } {
+    const view = Object.create(ClaudianView.prototype) as any;
+
+    view.peekBannerEl = createMockEl();
+    view.peekBannerTextEl = createMockEl();
+    view.historyDropdown = createMockEl();
+    view.noteFilter = options.noteFilter ?? null;
+    view.peekConsumedNote = options.consumedNote ?? null;
+
+    view.getActiveNotePath = jest.fn().mockReturnValue(options.activeNote);
+    view.plugin = {
+      getConversationList: jest.fn().mockReturnValue(options.conversations),
+    };
+
+    view.tabManager = {
+      openConversation: jest.fn().mockResolvedValue(undefined),
+    };
+
+    view.updateHistoryDropdown = jest.fn();
+    view.updatePeekBanner = (ClaudianView.prototype as any).updatePeekBanner.bind(view);
+    view.openHistoryConversation = (ClaudianView.prototype as any).openHistoryConversation.bind(view);
+    view.openHistoryConversationInNewTab = (ClaudianView.prototype as any).openHistoryConversationInNewTab.bind(view);
+
+    return { view };
+  }
+
+  function makeMeta(id: string, currentNote?: string): any {
+    return {
+      id,
+      providerId: 'claude',
+      title: `Conversation ${id}`,
+      createdAt: 0,
+      updatedAt: 0,
+      messageCount: 0,
+      preview: '',
+      ...(currentNote && { currentNote }),
+    };
+  }
+
+  it('shows the banner when a single conversation is linked and the note is fresh', () => {
+    const { view } = createPeekBannerHarness({
+      activeNote: 'note-a.md',
+      conversations: [makeMeta('c1', 'note-a.md')],
+    });
+
+    view.updatePeekBanner();
+
+    expect(view.peekBannerEl.hasClass('visible')).toBe(true);
+  });
+
+  it('hides the banner when a single linked conversation has already been opened from the banner', () => {
+    const { view } = createPeekBannerHarness({
+      activeNote: 'note-a.md',
+      conversations: [makeMeta('c1', 'note-a.md')],
+      consumedNote: 'note-a.md',
+    });
+
+    view.updatePeekBanner();
+
+    expect(view.peekBannerEl.hasClass('visible')).toBe(false);
+  });
+
+  it('shows the banner when multiple conversations are linked even after consumption', () => {
+    const { view } = createPeekBannerHarness({
+      activeNote: 'note-a.md',
+      conversations: [
+        makeMeta('c1', 'note-a.md'),
+        makeMeta('c2', 'note-a.md'),
+      ],
+      consumedNote: 'note-a.md',
+    });
+
+    view.updatePeekBanner();
+
+    expect(view.peekBannerEl.hasClass('visible')).toBe(true);
+  });
+
+  it('resets consumption when the active note changes', () => {
+    const { view } = createPeekBannerHarness({
+      activeNote: 'note-b.md',
+      conversations: [makeMeta('c1', 'note-b.md')],
+      consumedNote: 'note-a.md',
+    });
+
+    view.updatePeekBanner();
+
+    expect(view.peekConsumedNote).toBeNull();
+    expect(view.peekBannerEl.hasClass('visible')).toBe(true);
+  });
+
+  it('consumes the note when opening a linked conversation from the peek banner', async () => {
+    const { view } = createPeekBannerHarness({
+      activeNote: 'note-a.md',
+      conversations: [makeMeta('c1', 'note-a.md')],
+      noteFilter: 'note-a.md',
+    });
+
+    await view.openHistoryConversation('c1');
+
+    expect(view.peekConsumedNote).toBe('note-a.md');
+    expect(view.historyDropdown.hasClass('visible')).toBe(false);
+  });
+
+  it('does not consume the note when opening a conversation from the unfiltered history list', async () => {
+    const { view } = createPeekBannerHarness({
+      activeNote: 'note-a.md',
+      conversations: [makeMeta('c1', 'note-a.md')],
+      noteFilter: null,
+    });
+
+    await view.openHistoryConversation('c1');
+
+    expect(view.peekConsumedNote).toBeNull();
+  });
+
+  it('consumes the note when opening a linked conversation in a new tab from the peek banner', async () => {
+    const { view } = createPeekBannerHarness({
+      activeNote: 'note-a.md',
+      conversations: [makeMeta('c1', 'note-a.md')],
+      noteFilter: 'note-a.md',
+    });
+
+    await view.openHistoryConversationInNewTab('c1');
+
+    expect(view.peekConsumedNote).toBe('note-a.md');
+    expect(view.tabManager.openConversation).toHaveBeenCalledWith('c1', {
+      preferNewTab: true,
+      activate: true,
+    });
+  });
+});
