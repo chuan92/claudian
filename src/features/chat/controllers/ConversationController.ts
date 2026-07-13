@@ -1186,7 +1186,7 @@ export class ConversationController {
         this.updateHistoryDropdown();
         this.callbacks.onTitleChanged?.();
       },
-      { notePath: firstUserMsg.currentNote },
+      { notePath: fullConv.currentNote ?? firstUserMsg.currentNote },
     );
   }
 

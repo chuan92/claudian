@@ -1,4 +1,6 @@
 
+import { TFile, TFolder } from 'obsidian';
+
 import { TOOL_SUBAGENT } from '@/core/tools/toolNames';
 import { VIEW_TYPE_CLAUDIAN } from '@/core/types';
 import * as sdkSession from '@/providers/claude/history/ClaudeHistoryStore';
@@ -43,6 +45,10 @@ describe('ClaudianPlugin', () => {
 
     mockApp = {
       vault: {
+        on: jest.fn().mockImplementation((event: string, callback: (...args: any[]) => unknown) => ({
+          event,
+          callback,
+        })),
         adapter: {
           basePath: '/test/vault',
           exists: jest.fn().mockResolvedValue(false),
@@ -1006,6 +1012,107 @@ describe('ClaudianPlugin', () => {
 
       const updated = await plugin.getConversationById(conv.id);
       expect(updated?.title).toBeTruthy();
+    });
+  });
+
+  describe('conversation note association migration', () => {
+    const createTFile = (path: string): TFile => (
+      new (TFile as unknown as new (path: string) => TFile)(path)
+    );
+    const createTFolder = (path: string): TFolder => (
+      new (TFolder as unknown as new (path: string) => TFolder)(path)
+    );
+
+    function getVaultEventHandler(eventName: 'rename' | 'delete'): (...args: any[]) => Promise<void> {
+      const matchingCalls = (mockApp.vault.on as jest.Mock).mock.calls
+        .filter(([event]) => event === eventName);
+      const handler = matchingCalls[matchingCalls.length - 1]?.[1];
+      if (!handler) {
+        throw new Error(`Vault ${eventName} handler was not registered`);
+      }
+      return handler;
+    }
+
+    it('migrates persisted conversation associations when a note is renamed', async () => {
+      await plugin.onload();
+      const linked = await plugin.createConversation();
+      const unrelated = await plugin.createConversation();
+      await plugin.updateConversation(linked.id, { currentNote: 'notes/old.md' });
+      await plugin.updateConversation(unrelated.id, { currentNote: 'notes/other.md' });
+      mockApp.vault.adapter.write.mockClear();
+
+      await getVaultEventHandler('rename')(createTFile('notes/new.md'), 'notes/old.md');
+
+      expect(plugin.getConversationSync(linked.id)?.currentNote).toBe('notes/new.md');
+      expect(plugin.getConversationSync(unrelated.id)?.currentNote).toBe('notes/other.md');
+      const persisted = mockApp.vault.adapter.write.mock.calls.find(
+        ([filePath]: [string]) => filePath === `.claudian/sessions/${linked.id}.meta.json`,
+      );
+      expect(JSON.parse(persisted?.[1] as string)).toMatchObject({ currentNote: 'notes/new.md' });
+    });
+
+    it('migrates all associations below a renamed folder', async () => {
+      await plugin.onload();
+      const nested = await plugin.createConversation();
+      await plugin.updateConversation(nested.id, { currentNote: 'projects/old/topic/note.md' });
+
+      await getVaultEventHandler('rename')(createTFolder('archive/new'), 'projects/old');
+
+      expect(plugin.getConversationSync(nested.id)?.currentNote).toBe('archive/new/topic/note.md');
+    });
+
+    it('clears persisted conversation associations when a note is deleted', async () => {
+      await plugin.onload();
+      const linked = await plugin.createConversation();
+      await plugin.updateConversation(linked.id, { currentNote: 'notes/deleted.md' });
+      mockApp.vault.adapter.write.mockClear();
+
+      await getVaultEventHandler('delete')(createTFile('notes/deleted.md'));
+
+      expect(plugin.getConversationSync(linked.id)?.currentNote).toBeUndefined();
+      const persisted = mockApp.vault.adapter.write.mock.calls.find(
+        ([filePath]: [string]) => filePath === `.claudian/sessions/${linked.id}.meta.json`,
+      );
+      expect(JSON.parse(persisted?.[1] as string)).not.toHaveProperty('currentNote');
+    });
+
+    it('clears all associations below a deleted folder and refreshes open views', async () => {
+      await plugin.onload();
+      const nested = await plugin.createConversation();
+      const exact = await plugin.createConversation();
+      await plugin.updateConversation(nested.id, { currentNote: 'projects/old/note.md' });
+      await plugin.updateConversation(exact.id, { currentNote: 'projects/old' });
+      const refreshConversationNoteAssociations = jest.fn();
+      mockApp.workspace.getLeavesOfType.mockReturnValue([{
+        view: {
+          getTabManager: jest.fn(),
+          refreshConversationNoteAssociations,
+        },
+      }]);
+
+      await getVaultEventHandler('delete')(createTFolder('projects/old'));
+
+      expect(plugin.getConversationSync(nested.id)?.currentNote).toBeUndefined();
+      expect(plugin.getConversationSync(exact.id)?.currentNote).toBeUndefined();
+      expect(refreshConversationNoteAssociations).toHaveBeenCalledTimes(1);
+    });
+
+    it('refreshes open view paths even when no conversation metadata changes', async () => {
+      await plugin.onload();
+      const refreshConversationNoteAssociations = jest.fn();
+      mockApp.workspace.getLeavesOfType.mockReturnValue([{
+        view: {
+          getTabManager: jest.fn(),
+          refreshConversationNoteAssociations,
+        },
+      }]);
+
+      await getVaultEventHandler('rename')(createTFile('notes/new.md'), 'notes/old.md');
+
+      expect(refreshConversationNoteAssociations).toHaveBeenCalledWith(
+        'notes/old.md',
+        'notes/new.md',
+      );
     });
   });
 

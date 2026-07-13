@@ -1,5 +1,8 @@
 import type { ConversationMeta } from '@/core/types/chat';
-import { getConversationsLinkedToNote } from '@/features/chat/utils/conversationFilters';
+import {
+  getConversationsLinkedToNote,
+  remapConversationNotePath,
+} from '@/features/chat/utils/conversationFilters';
 
 function meta(overrides: Partial<ConversationMeta> = {}): ConversationMeta {
   return {
@@ -59,5 +62,32 @@ describe('getConversationsLinkedToNote', () => {
 
     expect(getConversationsLinkedToNote(metas, '')).toEqual([]);
     expect(getConversationsLinkedToNote(metas, null as unknown as string)).toEqual([]);
+  });
+});
+
+describe('remapConversationNotePath', () => {
+  it('renames an exact note association', () => {
+    expect(remapConversationNotePath('notes/old.md', 'notes/old.md', 'notes/new.md'))
+      .toBe('notes/new.md');
+  });
+
+  it('renames associations nested below a folder', () => {
+    expect(remapConversationNotePath(
+      'projects/old/topic/note.md',
+      'projects/old',
+      'archive/new',
+    )).toBe('archive/new/topic/note.md');
+  });
+
+  it('clears exact and nested associations on deletion', () => {
+    expect(remapConversationNotePath('notes/deleted.md', 'notes/deleted.md', null)).toBeNull();
+    expect(remapConversationNotePath('projects/old/note.md', 'projects/old', null)).toBeNull();
+  });
+
+  it('does not change similarly-prefixed or unrelated paths', () => {
+    expect(remapConversationNotePath('projects/older/note.md', 'projects/old', 'projects/new'))
+      .toBe('projects/older/note.md');
+    expect(remapConversationNotePath('notes/other.md', 'notes/old.md', 'notes/new.md'))
+      .toBe('notes/other.md');
   });
 });

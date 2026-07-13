@@ -1,3 +1,4 @@
+import { remapConversationNotePath } from '../../core/conversations/noteAssociation';
 import { normalizeProviderModelSelection, resolveConversationModel } from '../../core/providers/conversationModel';
 import { getRuntimeEnvironmentVariables } from '../../core/providers/providerEnvironment';
 import { ProviderRegistry } from '../../core/providers/ProviderRegistry';
@@ -44,6 +45,31 @@ export class ConversationRepository {
       }
     }
     return updated;
+  }
+
+  async remapNoteAssociations(oldPath: string, newPath: string | null): Promise<Conversation[]> {
+    const changed: Conversation[] = [];
+    const updatedAt = Date.now();
+
+    for (const conversation of this.conversations) {
+      const currentNote = conversation.currentNote ?? null;
+      const nextNote = remapConversationNotePath(currentNote, oldPath, newPath);
+      if (nextNote === currentNote) continue;
+
+      if (nextNote) {
+        conversation.currentNote = nextNote;
+      } else {
+        delete conversation.currentNote;
+      }
+      conversation.updatedAt = updatedAt;
+      changed.push(conversation);
+    }
+
+    const results = await Promise.allSettled(changed.map(conversation => this.save(conversation)));
+    if (results.some(result => result.status === 'rejected')) {
+      throw new Error('Failed to persist one or more conversation note associations.');
+    }
+    return changed;
   }
 
   async create(options?: {

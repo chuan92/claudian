@@ -45,7 +45,7 @@ import type { Locale } from './i18n/types';
 import { OPENCODE_PLAN_MODE_ID, OPENCODE_SAFE_MODE_ID } from './providers/opencode/modes';
 import { buildCursorContext } from './utils/editor';
 import { revealWorkspaceLeaf } from './utils/obsidianCompat';
-import { getVaultPath } from './utils/path';
+import { getVaultPath, normalizePathForVault } from './utils/path';
 
 function isClaudianView(value: unknown): value is ClaudianView {
   return !!value
@@ -60,10 +60,12 @@ export default class ClaudianPlugin extends Plugin {
   private settingsCoordinator!: SettingsCoordinator<ClaudianSettings>;
   private conversationRepository!: ConversationRepository;
   private lastKnownTabManagerState: AppTabManagerState | null = null;
+  private conversationNoteAssociationMigration = Promise.resolve();
 
   async onload() {
     await this.loadSettings();
     await ProviderWorkspaceRegistry.initializeAll(this.providerHost);
+    this.registerConversationNoteAssociationEvents();
 
     this.registerView(
       VIEW_TYPE_CLAUDIAN,
@@ -184,6 +186,44 @@ export default class ClaudianPlugin extends Plugin {
     });
 
     this.addSettingTab(new ClaudianSettingTab(this.app, this));
+  }
+
+  private registerConversationNoteAssociationEvents(): void {
+    const migrate = (oldPath: string, newPath: string | null): Promise<void> => {
+      const migration = this.conversationNoteAssociationMigration.then(() => (
+        this.handleConversationNoteAssociationChange(oldPath, newPath)
+      ));
+      this.conversationNoteAssociationMigration = migration.catch(() => {
+        new Notice('Failed to update conversation note associations.');
+      });
+      return this.conversationNoteAssociationMigration;
+    };
+
+    this.registerEvent(this.app.vault.on('rename', (file, oldPath) => (
+      migrate(oldPath, file.path)
+    )));
+    this.registerEvent(this.app.vault.on('delete', (file) => (
+      migrate(file.path, null)
+    )));
+  }
+
+  private async handleConversationNoteAssociationChange(
+    rawOldPath: string,
+    rawNewPath: string | null,
+  ): Promise<void> {
+    const vaultPath = getVaultPath(this.app);
+    const oldPath = normalizePathForVault(rawOldPath, vaultPath);
+    const newPath = normalizePathForVault(rawNewPath, vaultPath);
+    if (!oldPath || oldPath === newPath) {
+      return;
+    }
+
+    await this.conversationRepository.remapNoteAssociations(oldPath, newPath);
+
+    for (const view of this.getAllViews()) {
+      view.refreshConversationNoteAssociations(oldPath, newPath);
+    }
+
   }
 
   onunload(): void {

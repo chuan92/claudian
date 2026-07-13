@@ -608,6 +608,23 @@ describe('FileContextManager', () => {
       manager.destroy();
     });
 
+    it('should update current note and attachments below a renamed folder', () => {
+      const app = createMockApp({ files: ['projects/old/topic.md'] });
+      const manager = new FileContextManager(
+        app, containerEl as any, inputEl, createMockCallbacks()
+      );
+
+      manager.setCurrentNote('projects/old/topic.md');
+
+      const renameHandler = (app.vault.on as jest.Mock).mock.calls
+        .find((c: any[]) => c[0] === 'rename')?.[1];
+
+      renameHandler(createMockTFile('archive/new'), 'projects/old');
+      expect(manager.getCurrentNotePath()).toBe('archive/new/topic.md');
+      expect(manager.getAttachedFiles()).toEqual(new Set(['archive/new/topic.md']));
+      manager.destroy();
+    });
+
     it('should not update if renamed file is not attached', () => {
       const app = createMockApp({ files: ['notes/a.md', 'notes/unrelated.md'] });
       const manager = new FileContextManager(
@@ -658,6 +675,23 @@ describe('FileContextManager', () => {
 
       deleteHandler(createMockTFile('notes/a.md'));
       expect(manager.getAttachedFiles().has('notes/a.md')).toBe(false);
+      manager.destroy();
+    });
+
+    it('should clear current note and attachments below a deleted folder', () => {
+      const app = createMockApp({ files: ['projects/old/topic.md'] });
+      const manager = new FileContextManager(
+        app, containerEl as any, inputEl, createMockCallbacks()
+      );
+
+      manager.setCurrentNote('projects/old/topic.md');
+
+      const deleteHandler = (app.vault.on as jest.Mock).mock.calls
+        .find((c: any[]) => c[0] === 'delete')?.[1];
+
+      deleteHandler(createMockTFile('projects/old'));
+      expect(manager.getCurrentNotePath()).toBeNull();
+      expect(manager.getAttachedFiles()).toEqual(new Set());
       manager.destroy();
     });
 

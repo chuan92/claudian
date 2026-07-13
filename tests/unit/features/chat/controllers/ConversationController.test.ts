@@ -1641,6 +1641,27 @@ describe('ConversationController - Title Generation', () => {
       );
     });
 
+    it('should prefer the migrated conversation note over a stale message note', async () => {
+      (deps.plugin.getConversationById as any) = jest.fn().mockResolvedValue({
+        id: 'conv-1',
+        title: 'Old Title',
+        currentNote: 'papers/Renamed.md',
+        messages: [
+          { role: 'user', content: 'Explain this', currentNote: 'papers/Old.md' },
+          { role: 'assistant', content: 'Sure' },
+        ],
+      });
+
+      await controller.regenerateTitle('conv-1');
+
+      expect(mockTitleService.generateTitle).toHaveBeenCalledWith(
+        'conv-1',
+        'Explain this',
+        expect.any(Function),
+        { notePath: 'papers/Renamed.md' }
+      );
+    });
+
     it('should regenerate title with only user message (no assistant yet)', async () => {
       (deps.plugin.getConversationById as any) = jest.fn().mockResolvedValue({
         id: 'conv-1',

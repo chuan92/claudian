@@ -13,6 +13,7 @@ import {
 import { buildExternalContextDisplayEntries } from '../../../utils/externalContext';
 import { externalContextScanner } from '../../../utils/externalContextScanner';
 import { getVaultPath, normalizePathForVault as normalizePathForVaultUtil } from '../../../utils/path';
+import { remapConversationNotePath } from '../utils/conversationFilters';
 import { ComposerContextTray } from './ComposerContextTray';
 import { FileContextState } from './file-context/state/FileContextState';
 import { FileChipsView } from './file-context/view/FileChipsView';
@@ -292,43 +293,33 @@ export class FileContextManager {
     const normalizedNew = this.normalizePathForVault(newPath);
     if (!normalizedOld) return;
 
-    let needsUpdate = false;
-
-    // Update current note path if renamed
-    if (this.currentNotePath === normalizedOld) {
-      this.currentNotePath = normalizedNew;
-      needsUpdate = true;
-    }
-
-    // Update attached files
-    if (this.state.getAttachedFiles().has(normalizedOld)) {
-      this.state.detachFile(normalizedOld);
-      if (normalizedNew) {
-        this.state.attachFile(normalizedNew);
-      }
-      needsUpdate = true;
-    }
-
-    if (needsUpdate) {
-      this.refreshCurrentNoteChip();
-    }
+    this.remapFilePaths(normalizedOld, normalizedNew);
   }
 
   private handleFileDeleted(deletedPath: string): void {
     const normalized = this.normalizePathForVault(deletedPath);
     if (!normalized) return;
 
+    this.remapFilePaths(normalized, null);
+  }
+
+  private remapFilePaths(oldPath: string, newPath: string | null): void {
     let needsUpdate = false;
 
-    // Clear current note if deleted
-    if (this.currentNotePath === normalized) {
-      this.currentNotePath = null;
+    const nextCurrentNote = remapConversationNotePath(this.currentNotePath, oldPath, newPath);
+    if (nextCurrentNote !== this.currentNotePath) {
+      this.currentNotePath = nextCurrentNote;
       needsUpdate = true;
     }
 
-    // Remove from attached files
-    if (this.state.getAttachedFiles().has(normalized)) {
-      this.state.detachFile(normalized);
+    for (const attachedPath of this.state.getAttachedFiles()) {
+      const nextAttachedPath = remapConversationNotePath(attachedPath, oldPath, newPath);
+      if (nextAttachedPath === attachedPath) continue;
+
+      this.state.detachFile(attachedPath);
+      if (nextAttachedPath) {
+        this.state.attachFile(nextAttachedPath);
+      }
       needsUpdate = true;
     }
 

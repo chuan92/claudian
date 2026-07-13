@@ -489,9 +489,13 @@ describe('ClaudianView peek banner', () => {
     };
 
     view.updateHistoryDropdown = jest.fn();
+    view.schedulePeekRefresh = jest.fn();
     view.updatePeekBanner = (ClaudianView.prototype as any).updatePeekBanner.bind(view);
     view.openHistoryConversation = (ClaudianView.prototype as any).openHistoryConversation.bind(view);
     view.openHistoryConversationInNewTab = (ClaudianView.prototype as any).openHistoryConversationInNewTab.bind(view);
+    view.refreshConversationNoteAssociations = (
+      ClaudianView.prototype as any
+    ).refreshConversationNoteAssociations.bind(view);
 
     return { view };
   }
@@ -599,5 +603,22 @@ describe('ClaudianView peek banner', () => {
       preferNewTab: true,
       activate: true,
     });
+  });
+
+  it('remaps active note filters and refreshes a visible history dropdown after a folder rename', () => {
+    const { view } = createPeekBannerHarness({
+      activeNote: 'archive/new/note.md',
+      conversations: [makeMeta('c1', 'archive/new/note.md')],
+      noteFilter: 'projects/old/note.md',
+      consumedNote: 'projects/old/note.md',
+    });
+    view.historyDropdown.addClass('visible');
+
+    view.refreshConversationNoteAssociations('projects/old', 'archive/new');
+
+    expect(view.noteFilter).toBe('archive/new/note.md');
+    expect(view.peekConsumedNote).toBe('archive/new/note.md');
+    expect(view.updateHistoryDropdown).toHaveBeenCalledTimes(1);
+    expect(view.schedulePeekRefresh).toHaveBeenCalledTimes(1);
   });
 });

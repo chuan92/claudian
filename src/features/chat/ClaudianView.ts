@@ -31,7 +31,10 @@ import {
 import { TabBar } from './tabs/TabBar';
 import { TabManager } from './tabs/TabManager';
 import type { TabData, TabId } from './tabs/types';
-import { getConversationsLinkedToNote } from './utils/conversationFilters';
+import {
+  getConversationsLinkedToNote,
+  remapConversationNotePath,
+} from './utils/conversationFilters';
 import { recalculateUsageForModel } from './utils/usageInfo';
 
 type LoadableView = {
@@ -686,6 +689,17 @@ export class ClaudianView extends ItemView {
   private getHistoryTabIndex(tab: TabData): number | undefined {
     const index = this.tabManager?.getAllTabs().findIndex(candidate => candidate.id === tab.id) ?? -1;
     return index >= 0 ? index + 1 : undefined;
+  }
+
+  /** Refreshes linked-note UI after conversation metadata is migrated for a vault move/delete. */
+  refreshConversationNoteAssociations(oldPath: string, newPath: string | null): void {
+    this.noteFilter = remapConversationNotePath(this.noteFilter, oldPath, newPath);
+    this.peekConsumedNote = remapConversationNotePath(this.peekConsumedNote, oldPath, newPath);
+
+    if (this.historyDropdown?.hasClass('visible')) {
+      this.updateHistoryDropdown();
+    }
+    this.schedulePeekRefresh();
   }
 
   // ============================================
