@@ -1,5 +1,5 @@
 import type { App, EventRef } from 'obsidian';
-import { MarkdownView, Notice, TFile } from 'obsidian';
+import { Notice, TFile } from 'obsidian';
 
 import type { McpServerManager } from '../../../core/mcp/McpServerManager';
 import type { AgentMentionProvider } from '../../../shared/mention/MentionDropdownController';
@@ -83,7 +83,7 @@ export class FileContextManager {
           }
           try {
             const existingLeaf = this.app.workspace.getLeavesOfType('markdown').find(
-              leaf => leaf.view instanceof MarkdownView && leaf.view.file?.path === file.path,
+              leaf => leaf.getViewState().state?.file === file.path,
             );
             if (existingLeaf) {
               this.app.workspace.setActiveLeaf(existingLeaf);

@@ -904,6 +904,38 @@ describe('FileContextManager', () => {
       const file = createMockTFile('notes/open.md');
       const existingLeaf = {
         view: new (MarkdownView as any)(undefined, file),
+        getViewState: jest.fn(() => ({
+          type: 'markdown',
+          state: { file: 'notes/open.md' },
+        })),
+      };
+      const app = createMockApp({
+        files: ['notes/open.md'],
+        markdownLeaves: [existingLeaf],
+      });
+      const manager = new FileContextManager(
+        app, containerEl as any, inputEl, createMockCallbacks()
+      );
+
+      const openCallback = (manager as any).chipsView.callbacks.onOpenFile;
+      openCallback('notes/open.md');
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(app.workspace.setActiveLeaf).toHaveBeenCalledWith(existingLeaf);
+      expect(app.workspace.revealLeaf).toHaveBeenCalledWith(existingLeaf);
+      expect(app.workspace.getLeaf).not.toHaveBeenCalled();
+      manager.destroy();
+    });
+
+    it('activates an existing deferred markdown leaf for the linked note', async () => {
+      const existingLeaf = {
+        isDeferred: true,
+        view: {},
+        getViewState: jest.fn(() => ({
+          type: 'markdown',
+          state: { file: 'notes/open.md' },
+        })),
       };
       const app = createMockApp({
         files: ['notes/open.md'],
