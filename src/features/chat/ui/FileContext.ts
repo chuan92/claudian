@@ -1,5 +1,5 @@
 import type { App, EventRef } from 'obsidian';
-import { Notice, TFile } from 'obsidian';
+import { MarkdownView, Notice, TFile } from 'obsidian';
 
 import type { McpServerManager } from '../../../core/mcp/McpServerManager';
 import type { AgentMentionProvider } from '../../../shared/mention/MentionDropdownController';
@@ -81,7 +81,15 @@ export class FileContextManager {
             return;
           }
           try {
-            await this.app.workspace.getLeaf().openFile(file);
+            const existingLeaf = this.app.workspace.getLeavesOfType('markdown').find(
+              leaf => leaf.view instanceof MarkdownView && leaf.view.file?.path === file.path,
+            );
+            if (existingLeaf) {
+              this.app.workspace.setActiveLeaf(existingLeaf);
+              await this.app.workspace.revealLeaf(existingLeaf);
+            } else {
+              await this.app.workspace.getLeaf().openFile(file);
+            }
           } catch (error) {
             new Notice(`Failed to open file: ${error instanceof Error ? error.message : String(error)}`);
           }

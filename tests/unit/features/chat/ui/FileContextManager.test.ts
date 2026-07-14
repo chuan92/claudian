@@ -1,5 +1,5 @@
 import { createMockEl, type MockElement } from '@test/helpers/mockElement';
-import { TFile } from 'obsidian';
+import { MarkdownView, TFile } from 'obsidian';
 
 import type { FileContextCallbacks } from '@/features/chat/ui/FileContext';
 import { FileContextManager } from '@/features/chat/ui/FileContext';
@@ -68,8 +68,14 @@ function createMockApp(options: {
   files?: string[];
   activeFilePath?: string | null;
   fileCacheByPath?: Map<string, any>;
+  markdownLeaves?: any[];
 } = {}) {
-  const { files = [], activeFilePath = null, fileCacheByPath = new Map() } = options;
+  const {
+    files = [],
+    activeFilePath = null,
+    fileCacheByPath = new Map(),
+    markdownLeaves = [],
+  } = options;
   const fileMap = new Map<string, TFile>();
   files.forEach((filePath) => {
     fileMap.set(filePath, createMockTFile(filePath));
@@ -91,6 +97,9 @@ function createMockApp(options: {
       getLeaf: jest.fn(() => ({
         openFile: jest.fn().mockResolvedValue(undefined),
       })),
+      getLeavesOfType: jest.fn(() => markdownLeaves),
+      revealLeaf: jest.fn().mockResolvedValue(undefined),
+      setActiveLeaf: jest.fn(),
     },
     metadataCache: {
       getFileCache: jest.fn((file: TFile) => fileCacheByPath.get(file.path) || null),
@@ -857,6 +866,30 @@ describe('FileContextManager', () => {
   });
 
   describe('onOpenFile callback', () => {
+    it('activates an existing markdown leaf for the linked note', async () => {
+      const file = createMockTFile('notes/open.md');
+      const existingLeaf = {
+        view: new (MarkdownView as any)(undefined, file),
+      };
+      const app = createMockApp({
+        files: ['notes/open.md'],
+        markdownLeaves: [existingLeaf],
+      });
+      const manager = new FileContextManager(
+        app, containerEl as any, inputEl, createMockCallbacks()
+      );
+
+      const openCallback = (manager as any).chipsView.callbacks.onOpenFile;
+      openCallback('notes/open.md');
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(app.workspace.setActiveLeaf).toHaveBeenCalledWith(existingLeaf);
+      expect(app.workspace.revealLeaf).toHaveBeenCalledWith(existingLeaf);
+      expect(app.workspace.getLeaf).not.toHaveBeenCalled();
+      manager.destroy();
+    });
+
     it('should show Notice when file not found in vault', async () => {
       const { Notice: NoticeMock } = jest.requireMock('obsidian');
       const app = createMockApp();
