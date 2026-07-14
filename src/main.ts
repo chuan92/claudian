@@ -227,6 +227,7 @@ export default class ClaudianPlugin extends Plugin {
   }
 
   onunload(): void {
+    void this.conversationRepository.flushPendingTranscriptExports();
     void this.persistOpenTabStates();
   }
 

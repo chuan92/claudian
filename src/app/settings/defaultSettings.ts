@@ -14,6 +14,7 @@ export const DEFAULT_CLAUDIAN_SETTINGS: ClaudianSettings = {
   serviceTier: 'default',
   enableAutoTitleGeneration: true,
   titleGenerationModel: '',
+  shareSessionsAcrossMachines: false,
 
   excludedTags: [],
   mediaFolder: '',

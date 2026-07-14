@@ -16,7 +16,10 @@ export interface ConversationRepositoryDeps {
 }
 
 export class ConversationRepository {
+  private static readonly TRANSCRIPT_REEXPORT_DELAY_MS = 2500;
+
   private conversations: Conversation[] = [];
+  private pendingTranscriptExports = new Map<string, number>();
 
   constructor(private readonly deps: ConversationRepositoryDeps) {}
 
@@ -121,6 +124,7 @@ export class ConversationRepository {
 
     const conversation = this.conversations[index];
     this.conversations.splice(index, 1);
+    this.cancelPendingTranscriptExport(id);
 
     if (options.deleteProviderSession !== false) {
       const vaultPath = this.deps.getVaultPath();
@@ -204,6 +208,25 @@ export class ConversationRepository {
     }
     Object.assign(conversation, safeUpdates, { updatedAt: Date.now() });
     await this.save(conversation);
+
+    if (this.shouldExportTranscripts(safeUpdates)) {
+      await this.exportConversationTranscripts(conversation);
+      this.scheduleTranscriptReexport(conversation.id);
+    }
+  }
+
+  /** Flushes delayed provider transcript mirrors before the plugin unloads. */
+  async flushPendingTranscriptExports(): Promise<void> {
+    const pending = [...this.pendingTranscriptExports.entries()];
+    this.pendingTranscriptExports.clear();
+
+    for (const [conversationId, timer] of pending) {
+      window.clearTimeout(timer);
+      const conversation = this.getSync(conversationId);
+      if (conversation) {
+        await this.exportConversationTranscripts(conversation);
+      }
+    }
   }
 
   async getById(id: string): Promise<Conversation | null> {
@@ -289,13 +312,68 @@ export class ConversationRepository {
 
   private async hydrate(conversation: Conversation): Promise<void> {
     const vaultPath = this.deps.getVaultPath();
-    await ProviderRegistry
-      .getConversationHistoryService(conversation.providerId)
-      .hydrateConversationHistory(
+    const pathContext = this.getHistoryPathContext(conversation.providerId, vaultPath);
+    const historyService = ProviderRegistry.getConversationHistoryService(conversation.providerId);
+
+    if (this.isTranscriptSharingEnabled() && historyService.ensureLocalTranscripts) {
+      try {
+        if (await historyService.ensureLocalTranscripts(conversation, vaultPath, pathContext)) {
+          await this.save(conversation);
+        }
+      } catch {
+        // Transcript sharing is best-effort and must not prevent local history hydration.
+      }
+    }
+
+    await historyService.hydrateConversationHistory(conversation, vaultPath, pathContext);
+  }
+
+  private shouldExportTranscripts(updates: Partial<Conversation>): boolean {
+    return 'messages' in updates || 'sessionId' in updates || 'providerState' in updates;
+  }
+
+  private isTranscriptSharingEnabled(): boolean {
+    return this.deps.getSettings().shareSessionsAcrossMachines === true;
+  }
+
+  private async exportConversationTranscripts(conversation: Conversation): Promise<void> {
+    if (!this.isTranscriptSharingEnabled()) return;
+
+    const vaultPath = this.deps.getVaultPath();
+    const historyService = ProviderRegistry.getConversationHistoryService(conversation.providerId);
+    if (!historyService.exportTranscripts) return;
+
+    try {
+      await historyService.exportTranscripts(
         conversation,
         vaultPath,
         this.getHistoryPathContext(conversation.providerId, vaultPath),
       );
+    } catch {
+      // A sync failure must not turn a successfully saved conversation into an error.
+    }
+  }
+
+  private scheduleTranscriptReexport(conversationId: string): void {
+    if (!this.isTranscriptSharingEnabled()) return;
+
+    this.cancelPendingTranscriptExport(conversationId);
+    const timer = window.setTimeout(() => {
+      this.pendingTranscriptExports.delete(conversationId);
+      const conversation = this.getSync(conversationId);
+      if (conversation) {
+        void this.exportConversationTranscripts(conversation);
+      }
+    }, ConversationRepository.TRANSCRIPT_REEXPORT_DELAY_MS);
+    this.pendingTranscriptExports.set(conversationId, timer);
+  }
+
+  private cancelPendingTranscriptExport(conversationId: string): void {
+    const timer = this.pendingTranscriptExports.get(conversationId);
+    if (timer !== undefined) {
+      window.clearTimeout(timer);
+      this.pendingTranscriptExports.delete(conversationId);
+    }
   }
 
   private getHistoryPathContext(

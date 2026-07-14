@@ -73,9 +73,7 @@
       "noResults": "Aucune conversation correspondante",
       "linkedTo": "Lié à : {note}",
       "clearFilter": "Effacer le filtre",
-      "noLinked": "Aucune conversation liée à cette note",
-      "changeNote": "Changer la note liée...",
-      "unlinkNote": "Détacher la note"
+      "noLinked": "Aucune conversation liée à cette note"
     },
     "peek": {
       "linked": "{count} conversations liées à {note}"
@@ -300,6 +298,10 @@
     "expandFileEditsByDefault": {
       "name": "Développer les modifications de fichiers par défaut",
       "desc": "Afficher les diffs Write et Edit développés lors de leur première apparition."
+    },
+    "shareSessionsAcrossMachines": {
+      "name": "Partager les sessions entre appareils",
+      "desc": "Reflète les transcriptions Claude et Codex dans le coffre afin qu'une conversation démarrée sur un appareil synchronisé puisse être ouverte et poursuivie sur un autre. Nécessite un coffre synchronisé (par ex. Syncthing, iCloud) et augmente la taille du coffre."
     },
     "chatViewPlacement": {
       "name": "Ouvrir Claudian dans",

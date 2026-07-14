@@ -73,9 +73,7 @@
       "noResults": "Keine passenden Unterhaltungen",
       "linkedTo": "Verlinkt mit: {note}",
       "clearFilter": "Filter löschen",
-      "noLinked": "Keine mit dieser Notiz verlinkten Gespräche",
-      "changeNote": "Verlinkte Notiz ändern...",
-      "unlinkNote": "Notiz-Verlinkung aufheben"
+      "noLinked": "Keine mit dieser Notiz verlinkten Gespräche"
     },
     "peek": {
       "linked": "{count} Gespräche verlinkt mit {note}"
@@ -300,6 +298,10 @@
     "expandFileEditsByDefault": {
       "name": "Dateibearbeitungen standardmäßig ausklappen",
       "desc": "Write- und Edit-Diffs beim ersten Erscheinen ausgeklappt anzeigen."
+    },
+    "shareSessionsAcrossMachines": {
+      "name": "Sitzungen geräteübergreifend teilen",
+      "desc": "Spiegelt Claude- und Codex-Konversationstranskripte in den Tresor, damit eine auf einem synchronisierten Gerät begonnene Konversation auf einem anderen geöffnet und fortgesetzt werden kann. Erfordert einen synchronisierten Tresor (z. B. Syncthing, iCloud) und vergrößert den Tresor."
     },
     "chatViewPlacement": {
       "name": "Claudian öffnen in",

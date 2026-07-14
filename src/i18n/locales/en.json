@@ -73,9 +73,7 @@
       "noResults": "No matching conversations",
       "linkedTo": "Linked to: {note}",
       "clearFilter": "Clear filter",
-      "noLinked": "No conversations linked to this note",
-      "changeNote": "Change linked note...",
-      "unlinkNote": "Unlink note"
+      "noLinked": "No conversations linked to this note"
     },
     "peek": {
       "linked": "{count} conversations linked to {note}"
@@ -300,6 +298,10 @@
     "expandFileEditsByDefault": {
       "name": "Expand file edits by default",
       "desc": "Show Write and Edit diffs expanded when they first appear."
+    },
+    "shareSessionsAcrossMachines": {
+      "name": "Share sessions across machines",
+      "desc": "Mirror Claude and Codex conversation transcripts into the vault so a conversation started on one synced machine can be opened and continued on another. Requires the vault itself to be synced (e.g. Syncthing, iCloud) and increases vault size."
     },
     "chatViewPlacement": {
       "name": "Open Claudian in",

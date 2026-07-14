@@ -9,6 +9,7 @@ import type { CodexProviderState } from '../types';
 import { getCodexState } from '../types';
 import {
   CODEX_HISTORY_LOOKUP_TIMEOUT_MS,
+  getCodexTranscriptRootCandidates,
   resolveCodexSessionFileHint,
   resolveCodexTranscriptRootHint,
 } from './CodexHistoryPathResolver';
@@ -19,6 +20,11 @@ import {
   parseCodexSessionFileAsync,
   parseCodexSessionTurns,
 } from './CodexHistoryStore';
+import {
+  deleteVaultCodexTranscripts,
+  exportCodexTranscriptToVault,
+  importCodexTranscriptFromVault,
+} from './CodexTranscriptSync';
 
 async function readSessionTurns(sessionFilePath: string): Promise<CodexParsedTurn[]> {
   const controller = new AbortController();
@@ -38,6 +44,25 @@ async function readSessionTurns(sessionFilePath: string): Promise<CodexParsedTur
 
 export class CodexConversationHistoryService implements ProviderConversationHistoryService {
   private hydratedConversationPaths = new Map<string, string>();
+
+  private getTranscriptReferences(conversation: Conversation): Array<{
+    kind: 'primary' | 'forkSource';
+    sessionId: string;
+  }> {
+    const state = getCodexState(conversation.providerState);
+    const references: Array<{ kind: 'primary' | 'forkSource'; sessionId: string }> = [];
+    const primarySessionId = state.threadId ?? conversation.sessionId;
+    if (primarySessionId) {
+      references.push({ kind: 'primary', sessionId: primarySessionId });
+    }
+    if (
+      state.forkSource?.sessionId
+      && state.forkSource.sessionId !== primarySessionId
+    ) {
+      references.push({ kind: 'forkSource', sessionId: state.forkSource.sessionId });
+    }
+    return references;
+  }
 
   async hydrateConversationHistory(
     conversation: Conversation,
@@ -181,10 +206,131 @@ export class CodexConversationHistoryService implements ProviderConversationHist
   }
 
   async deleteConversationSession(
-    _conversation: Conversation,
-    _vaultPath: string | null,
+    conversation: Conversation,
+    vaultPath: string | null,
   ): Promise<void> {
     // Never delete ~/.codex transcripts
+    this.hydratedConversationPaths.delete(conversation.id);
+    if (vaultPath) {
+      await deleteVaultCodexTranscripts(
+        vaultPath,
+        this.getTranscriptReferences(conversation).map(reference => reference.sessionId),
+      );
+    }
+  }
+
+  async ensureLocalTranscripts(
+    conversation: Conversation,
+    vaultPath: string | null,
+    pathContext?: ProviderHistoryPathContext,
+  ): Promise<boolean> {
+    if (!vaultPath) return false;
+
+    const context = pathContext ?? { environment: process.env };
+    const currentState = getCodexState(conversation.providerState);
+    const nextState: CodexProviderState = { ...currentState };
+    let changed = false;
+
+    for (const reference of this.getTranscriptReferences(conversation)) {
+      const isPrimary = reference.kind === 'primary';
+      const persistedSessionPath = isPrimary
+        ? currentState.sessionFilePath
+        : currentState.forkSourceSessionFilePath;
+      const persistedRootPath = isPrimary
+        ? currentState.transcriptRootPath
+        : currentState.forkSourceTranscriptRootPath;
+      const deadline = Date.now() + CODEX_HISTORY_LOOKUP_TIMEOUT_MS;
+      const existingSessionPath = await resolveCodexSessionFileHint(
+        persistedSessionPath,
+        reference.sessionId,
+        context,
+        deadline,
+      );
+      const derivedExistingRoot = deriveCodexSessionsRootFromSessionPath(existingSessionPath);
+      const existingRootPath = resolveCodexTranscriptRootHint(persistedRootPath, context)
+        ?? resolveCodexTranscriptRootHint(derivedExistingRoot, context);
+      const transcriptRoots = getCodexTranscriptRootCandidates(context, [
+        persistedSessionPath,
+        persistedRootPath,
+        existingSessionPath,
+      ]);
+      const imported = await importCodexTranscriptFromVault(
+        vaultPath,
+        reference.sessionId,
+        transcriptRoots,
+        existingSessionPath,
+        existingRootPath,
+      );
+      if (!imported) continue;
+
+      if (isPrimary) {
+        changed = changed
+          || nextState.sessionFilePath !== imported.sessionFilePath
+          || nextState.transcriptRootPath !== imported.transcriptRootPath;
+        nextState.sessionFilePath = imported.sessionFilePath;
+        nextState.transcriptRootPath = imported.transcriptRootPath;
+      } else {
+        changed = changed
+          || nextState.forkSourceSessionFilePath !== imported.sessionFilePath
+          || nextState.forkSourceTranscriptRootPath !== imported.transcriptRootPath;
+        nextState.forkSourceSessionFilePath = imported.sessionFilePath;
+        nextState.forkSourceTranscriptRootPath = imported.transcriptRootPath;
+      }
+      changed = imported.imported || changed;
+    }
+
+    if (changed) {
+      conversation.providerState = {
+        ...(conversation.providerState ?? {}),
+        ...nextState,
+      };
+      this.hydratedConversationPaths.delete(conversation.id);
+    }
+    return changed;
+  }
+
+  async exportTranscripts(
+    conversation: Conversation,
+    vaultPath: string | null,
+    pathContext?: ProviderHistoryPathContext,
+  ): Promise<void> {
+    if (!vaultPath) return;
+
+    const state = getCodexState(conversation.providerState);
+    const context = pathContext ?? { environment: process.env };
+    for (const reference of this.getTranscriptReferences(conversation)) {
+      const isPrimary = reference.kind === 'primary';
+      const persistedSessionPath = isPrimary
+        ? state.sessionFilePath
+        : state.forkSourceSessionFilePath;
+      const persistedRootPath = isPrimary
+        ? state.transcriptRootPath
+        : state.forkSourceTranscriptRootPath;
+      try {
+        const sessionFilePath = await resolveCodexSessionFileHint(
+          persistedSessionPath,
+          reference.sessionId,
+          context,
+        );
+        if (!sessionFilePath) continue;
+
+        const transcriptRootPath = resolveCodexTranscriptRootHint(persistedRootPath, context)
+          ?? resolveCodexTranscriptRootHint(
+            deriveCodexSessionsRootFromSessionPath(sessionFilePath),
+            context,
+          );
+        if (!transcriptRootPath) continue;
+
+        await exportCodexTranscriptToVault(
+          vaultPath,
+          reference.sessionId,
+          sessionFilePath,
+          transcriptRootPath,
+        );
+      } catch {
+        // Best-effort; a missing fork source must not block the current transcript.
+      }
+    }
   }
 
   resolveSessionIdForConversation(conversation: Conversation | null): string | null {

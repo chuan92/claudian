@@ -23,6 +23,11 @@ import {
   locateSDKSession,
   locateSDKSessions,
 } from './ClaudeHistoryStore';
+import {
+  deleteVaultTranscripts,
+  exportTranscripts,
+  importTranscripts,
+} from './ClaudeTranscriptSync';
 import type { SDKSessionLocation } from './sdkSessionPaths';
 
 function chooseRicherResult(sdkResult?: string, cachedResult?: string): string | undefined {
@@ -405,6 +410,14 @@ export class ClaudeConversationHistoryService implements ProviderConversationHis
     ].filter((id): id is string => !!id))];
   }
 
+  private getTranscriptSessionIds(conversation: Conversation): string[] {
+    const state = getClaudeState(conversation.providerState);
+    return [...new Set([
+      ...this.getConversationSessionIds(conversation),
+      state.forkSource?.sessionId,
+    ].filter((id): id is string => !!id))];
+  }
+
   private synchronizeHistoryCache(
     conversation: Conversation,
     vaultPath: string,
@@ -713,6 +726,50 @@ export class ClaudeConversationHistoryService implements ProviderConversationHis
     }
   }
 
+  async ensureLocalTranscripts(
+    conversation: Conversation,
+    vaultPath: string | null,
+    pathContext?: ProviderHistoryPathContext,
+  ): Promise<boolean> {
+    if (!vaultPath) return false;
+
+    const imported = await importTranscripts(
+      vaultPath,
+      this.getTranscriptSessionIds(conversation),
+      pathContext,
+    );
+    if (imported) {
+      this.hydratedConversationIds.delete(conversation.id);
+      this.pendingSessionLocationsByConversation.delete(conversation.id);
+      this.relocatedSessionPathsByConversation.delete(conversation.id);
+    }
+    return imported;
+  }
+
+  async exportTranscripts(
+    conversation: Conversation,
+    vaultPath: string | null,
+    pathContext?: ProviderHistoryPathContext,
+  ): Promise<void> {
+    if (!vaultPath) return;
+
+    const sessionIds = this.getTranscriptSessionIds(conversation);
+    const sourcePaths = new Map(
+      this.relocatedSessionPathsByConversation.get(conversation.id) ?? [],
+    );
+    const unresolvedIds = sessionIds.filter(sessionId => !sourcePaths.has(sessionId));
+    const locations = pathContext
+      ? await locateSDKSessions(vaultPath, unresolvedIds, pathContext)
+      : await locateSDKSessions(vaultPath, unresolvedIds);
+    for (const [sessionId, location] of locations) {
+      if (location.sessionPath) {
+        sourcePaths.set(sessionId, location.sessionPath);
+      }
+    }
+
+    await exportTranscripts(vaultPath, sessionIds, pathContext, sourcePaths);
+  }
+
   async deleteConversationSession(
     conversation: Conversation,
     vaultPath: string | null,
@@ -724,14 +781,15 @@ export class ClaudeConversationHistoryService implements ProviderConversationHis
     this.historyCacheKeysByConversation.delete(conversation.id);
     const state = getClaudeState(conversation.providerState);
     const sessionId = state.providerSessionId ?? conversation.sessionId;
-    if (!vaultPath || !sessionId) {
-      return;
-    }
+    if (!vaultPath) return;
 
-    if (pathContext) {
-      await deleteSDKSession(vaultPath, sessionId, pathContext);
-    } else {
-      await deleteSDKSession(vaultPath, sessionId);
+    if (sessionId) {
+      if (pathContext) {
+        await deleteSDKSession(vaultPath, sessionId, pathContext);
+      } else {
+        await deleteSDKSession(vaultPath, sessionId);
+      }
     }
+    await deleteVaultTranscripts(vaultPath, this.getTranscriptSessionIds(conversation));
   }
 }

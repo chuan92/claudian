@@ -476,6 +476,22 @@ export interface ProviderConversationHistoryService {
   ): Record<string, unknown>;
   /** Adds provider-owned persisted metadata to Conversation.providerState before session save. */
   buildPersistedProviderState?(conversation: Conversation): Record<string, unknown> | undefined;
+  /**
+   * Materializes vault-carried native transcripts in this machine's provider
+   * storage. Providers may also update opaque providerState paths. Returns true
+   * whenever local files or persisted provider state changed.
+   */
+  ensureLocalTranscripts?(
+    conversation: Conversation,
+    vaultPath: string | null,
+    pathContext?: ProviderHistoryPathContext,
+  ): Promise<boolean>;
+  /** Mirrors this conversation's provider-native transcripts into the vault. */
+  exportTranscripts?(
+    conversation: Conversation,
+    vaultPath: string | null,
+    pathContext?: ProviderHistoryPathContext,
+  ): Promise<void>;
 }
 
 export interface ProviderHistoryPathContext {

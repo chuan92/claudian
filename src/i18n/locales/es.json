@@ -73,9 +73,7 @@
       "noResults": "No hay conversaciones coincidentes",
       "linkedTo": "Vinculado a: {note}",
       "clearFilter": "Borrar filtro",
-      "noLinked": "No hay conversaciones vinculadas a esta nota",
-      "changeNote": "Cambiar nota vinculada...",
-      "unlinkNote": "Desvincular nota"
+      "noLinked": "No hay conversaciones vinculadas a esta nota"
     },
     "peek": {
       "linked": "{count} conversaciones vinculadas a {note}"
@@ -300,6 +298,10 @@
     "expandFileEditsByDefault": {
       "name": "Expandir ediciones de archivo por defecto",
       "desc": "Mostrar los diffs de Write y Edit expandidos cuando aparecen por primera vez."
+    },
+    "shareSessionsAcrossMachines": {
+      "name": "Compartir sesiones entre dispositivos",
+      "desc": "Refleja las transcripciones de Claude y Codex en la bóveda para que una conversación iniciada en un dispositivo sincronizado pueda abrirse y continuarse en otro. Requiere que la bóveda esté sincronizada (p. ej., Syncthing, iCloud) y aumenta su tamaño."
     },
     "chatViewPlacement": {
       "name": "Abrir Claudian en",

@@ -73,9 +73,7 @@
       "noResults": "没有匹配对话",
       "linkedTo": "关联到：{note}",
       "clearFilter": "清除筛选",
-      "noLinked": "没有关联到此笔记的对话",
-      "changeNote": "更改关联笔记...",
-      "unlinkNote": "取消关联笔记"
+      "noLinked": "没有关联到此笔记的对话"
     },
     "peek": {
       "linked": "{count} 个对话关联到 {note}"
@@ -300,6 +298,10 @@
     "expandFileEditsByDefault": {
       "name": "默认展开文件编辑",
       "desc": "Write 和 Edit diff 首次出现时以展开状态显示。"
+    },
+    "shareSessionsAcrossMachines": {
+      "name": "跨设备共享会话",
+      "desc": "将 Claude 和 Codex 会话记录镜像到仓库内，这样在一台已同步设备上开始的会话，可以在另一台设备上打开并继续。需要仓库本身已同步（如 Syncthing、iCloud），并会增大仓库体积。"
     },
     "chatViewPlacement": {
       "name": "Claudian 打开位置",

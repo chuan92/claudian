@@ -79,7 +79,7 @@ function getTrustedSessionRoots(
   const roots: string[] = [];
   const configuredHome = context.environment.CODEX_HOME?.trim();
   if (configuredHome && isAbsolutePath(configuredHome)) {
-    roots.push(joinSessionsRoot(configuredHome));
+    let mappedHostSessionsRoot: string | null = null;
     const distroConstraint = getWslDistroConstraint(context);
     if (distroConstraint !== undefined && path.posix.isAbsolute(configuredHome)) {
       const hintedDistro = hints
@@ -91,13 +91,13 @@ function getTrustedSessionRoots(
         platformFamily: 'unix',
         platformOs: 'linux',
       });
-      const hostSessionsRoot = pathMapper.toHostPath(
+      mappedHostSessionsRoot = pathMapper.toHostPath(
         path.posix.join(configuredHome, 'sessions'),
       );
-      if (hostSessionsRoot) {
-        roots.push(hostSessionsRoot);
-      }
     }
+    // On Windows+WSL, filesystem work happens through the mapped host path.
+    // Elsewhere, CODEX_HOME itself is already host-accessible.
+    roots.push(mappedHostSessionsRoot ?? joinSessionsRoot(configuredHome));
   }
 
   const home = context.environment.HOME?.trim()
@@ -106,14 +106,24 @@ function getTrustedSessionRoots(
   const homePathModule = isWindowsPath(home)
     ? path.win32
     : path.posix;
-  roots.push(homePathModule.join(home, '.codex', 'sessions'));
-  for (const hint of hints) {
-    const wslRoot = getTrustedWslRoot(hint, context);
-    if (wslRoot) {
-      roots.push(wslRoot.root);
-    }
+  const defaultHostRoot = homePathModule.join(home, '.codex', 'sessions');
+  const wslRoots = hints
+    .map(hint => getTrustedWslRoot(hint, context)?.root)
+    .filter((root): root is string => !!root);
+  if (getWslDistroConstraint(context) !== undefined) {
+    roots.push(...wslRoots, defaultHostRoot);
+  } else {
+    roots.push(defaultHostRoot, ...wslRoots);
   }
   return [...new Set(roots)];
+}
+
+/** Trusted local Codex session roots, ordered by runtime preference. */
+export function getCodexTranscriptRootCandidates(
+  context: ProviderHistoryPathContext,
+  hints: Array<string | null | undefined> = [],
+): string[] {
+  return getTrustedSessionRoots(context, hints);
 }
 
 export function resolveCodexTranscriptRootHint(

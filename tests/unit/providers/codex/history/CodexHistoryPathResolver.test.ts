@@ -1,4 +1,5 @@
 import {
+  getCodexTranscriptRootCandidates,
   resolveCodexSessionFileHint,
   resolveCodexTranscriptRootHint,
 } from '@/providers/codex/history/CodexHistoryPathResolver';
@@ -32,6 +33,12 @@ describe('CodexHistoryPathResolver', () => {
     const root = '\\\\wsl$\\Ubuntu\\home\\user\\.codex\\sessions';
 
     expect(resolveCodexTranscriptRootHint(root, createWslContext())).toBe(root);
+  });
+
+  it('prefers the host-readable WSL root when materializing a synced transcript', () => {
+    const root = '\\\\wsl$\\Ubuntu\\home\\user\\.codex\\sessions';
+
+    expect(getCodexTranscriptRootCandidates(createWslContext(), [root])[0]).toBe(root);
   });
 
   it('accepts a WSL session path under the configured distro standard root', async () => {
