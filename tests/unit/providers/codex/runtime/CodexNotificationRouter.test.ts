@@ -393,6 +393,252 @@ describe('CodexNotificationRouter', () => {
       expect(chunks[chunks.length - 1]).toEqual({ type: 'done' });
     });
 
+    it('does not duplicate an exec envelope represented by a semantic command item', () => {
+      router.beginTurn({ isPlanTurn: false });
+
+      router.handleNotification('rawResponseItem/completed', {
+        threadId: 't1',
+        turnId: 'turn1',
+        item: {
+          type: 'custom_tool_call',
+          name: 'exec',
+          call_id: 'call_exec_wrapper',
+          input: 'const r = await tools.exec_command({cmd:"rg -n TODO src"}); text(r.output);',
+        },
+      });
+      router.handleNotification('item/started', {
+        threadId: 't1',
+        turnId: 'turn1',
+        item: {
+          type: 'commandExecution',
+          id: 'semantic_command_1',
+          command: 'rg -n TODO src',
+          cwd: '/workspace',
+          processId: '123',
+          source: 'unifiedExecStartup',
+          status: 'inProgress',
+          commandActions: [{ type: 'search', command: 'rg' }],
+          aggregatedOutput: null,
+          exitCode: null,
+          durationMs: null,
+        },
+      });
+      router.handleNotification('item/commandExecution/outputDelta', {
+        threadId: 't1',
+        turnId: 'turn1',
+        itemId: 'semantic_command_1',
+        delta: 'src/main.ts:1:TODO\n',
+      });
+      router.handleNotification('item/completed', {
+        threadId: 't1',
+        turnId: 'turn1',
+        item: {
+          type: 'commandExecution',
+          id: 'semantic_command_1',
+          command: 'rg -n TODO src',
+          cwd: '/workspace',
+          processId: '123',
+          source: 'unifiedExecStartup',
+          status: 'completed',
+          commandActions: [{ type: 'search', command: 'rg' }],
+          aggregatedOutput: 'src/main.ts:1:TODO\n',
+          exitCode: 0,
+          durationMs: 10,
+        },
+      });
+      router.handleNotification('rawResponseItem/completed', {
+        threadId: 't1',
+        turnId: 'turn1',
+        item: {
+          type: 'custom_tool_call_output',
+          call_id: 'call_exec_wrapper',
+          output: 'Script completed\nWall time 0.1 seconds\nOutput:\nsrc/main.ts:1:TODO\n',
+        },
+      });
+
+      expect(chunks).toEqual([
+        {
+          type: 'tool_use',
+          id: 'call_exec_wrapper',
+          name: 'Bash',
+          input: { command: 'rg -n TODO src' },
+        },
+        {
+          type: 'tool_result',
+          id: 'call_exec_wrapper',
+          content: 'src/main.ts:1:TODO\n',
+          isError: false,
+        },
+      ]);
+    });
+
+    it('keeps a later identical semantic command after an unmatched raw wrapper completes', () => {
+      router.beginTurn({ isPlanTurn: false });
+
+      router.handleNotification('rawResponseItem/completed', {
+        threadId: 't1',
+        turnId: 'turn1',
+        item: {
+          type: 'custom_tool_call',
+          name: 'exec',
+          call_id: 'raw_only',
+          input: 'const r = await tools.exec_command({cmd:"pwd"}); text(r.output);',
+        },
+      });
+      router.handleNotification('rawResponseItem/completed', {
+        threadId: 't1',
+        turnId: 'turn1',
+        item: {
+          type: 'custom_tool_call_output',
+          call_id: 'raw_only',
+          output: 'Script completed\nOutput:\n/workspace\n',
+        },
+      });
+      router.handleNotification('item/started', {
+        threadId: 't1',
+        turnId: 'turn1',
+        item: {
+          type: 'commandExecution',
+          id: 'semantic_only',
+          command: 'pwd',
+          cwd: '/workspace',
+          processId: '123',
+          source: 'unifiedExecStartup',
+          status: 'inProgress',
+          commandActions: [{ type: 'unknown', command: 'pwd' }],
+          aggregatedOutput: null,
+          exitCode: null,
+          durationMs: null,
+        },
+      });
+      router.handleNotification('item/completed', {
+        threadId: 't1',
+        turnId: 'turn1',
+        item: {
+          type: 'commandExecution',
+          id: 'semantic_only',
+          command: 'pwd',
+          cwd: '/workspace',
+          processId: '123',
+          source: 'unifiedExecStartup',
+          status: 'completed',
+          commandActions: [{ type: 'unknown', command: 'pwd' }],
+          aggregatedOutput: '/workspace\n',
+          exitCode: 0,
+          durationMs: 10,
+        },
+      });
+
+      expect(chunks.filter(chunk => chunk.type === 'tool_use')).toEqual([
+        expect.objectContaining({ id: 'raw_only', name: 'Bash' }),
+        expect.objectContaining({ id: 'semantic_only', name: 'Bash' }),
+      ]);
+      expect(chunks.filter(chunk => chunk.type === 'tool_result')).toHaveLength(2);
+    });
+
+    it('suppresses wait transport calls for a semantically owned exec envelope', () => {
+      router.beginTurn({ isPlanTurn: false });
+
+      router.handleNotification('rawResponseItem/completed', {
+        threadId: 't1',
+        turnId: 'turn1',
+        item: {
+          type: 'custom_tool_call',
+          name: 'exec',
+          call_id: 'call_exec_wrapper',
+          input: 'const r = await tools.exec_command({cmd:"npm test"}); text(r.output);',
+        },
+      });
+      router.handleNotification('item/started', {
+        threadId: 't1',
+        turnId: 'turn1',
+        item: {
+          type: 'commandExecution',
+          id: 'semantic_command_1',
+          command: 'npm test',
+          cwd: '/workspace',
+          processId: '123',
+          source: 'unifiedExecStartup',
+          status: 'inProgress',
+          commandActions: [{ type: 'unknown', command: 'npm test' }],
+          aggregatedOutput: null,
+          exitCode: null,
+          durationMs: null,
+        },
+      });
+      router.handleNotification('rawResponseItem/completed', {
+        threadId: 't1',
+        turnId: 'turn1',
+        item: {
+          type: 'custom_tool_call_output',
+          call_id: 'call_exec_wrapper',
+          output: 'Script running with cell ID 42\nOutput:\ntests started\n',
+        },
+      });
+      router.handleNotification('rawResponseItem/completed', {
+        threadId: 't1',
+        turnId: 'turn1',
+        item: {
+          type: 'function_call',
+          name: 'wait',
+          call_id: 'call_wait',
+          arguments: '{"cell_id":"42","yield_time_ms":30000}',
+        },
+      });
+      router.handleNotification('rawResponseItem/completed', {
+        threadId: 't1',
+        turnId: 'turn1',
+        item: {
+          type: 'function_call_output',
+          call_id: 'call_wait',
+          output: 'Script completed\nOutput:\ntests passed\n',
+        },
+      });
+      router.handleNotification('item/commandExecution/outputDelta', {
+        threadId: 't1',
+        turnId: 'turn1',
+        itemId: 'semantic_command_1',
+        delta: 'tests passed\n',
+      });
+      router.handleNotification('item/completed', {
+        threadId: 't1',
+        turnId: 'turn1',
+        item: {
+          type: 'commandExecution',
+          id: 'semantic_command_1',
+          command: 'npm test',
+          cwd: '/workspace',
+          processId: '123',
+          source: 'unifiedExecStartup',
+          status: 'completed',
+          commandActions: [{ type: 'unknown', command: 'npm test' }],
+          aggregatedOutput: 'tests passed\n',
+          exitCode: 0,
+          durationMs: 10,
+        },
+      });
+
+      expect(chunks).toEqual([
+        {
+          type: 'tool_use',
+          id: 'call_exec_wrapper',
+          name: 'Bash',
+          input: { command: 'npm test' },
+        },
+        {
+          type: 'tool_output',
+          id: 'call_exec_wrapper',
+          content: 'tests started\n',
+        },
+        {
+          type: 'tool_result',
+          id: 'call_exec_wrapper',
+          content: 'tests started\ntests passed\n',
+          isError: false,
+        },
+      ]);
+    });
+
     it('keeps yielded exec envelopes running until their wait call completes', () => {
       router.beginTurn({ isPlanTurn: false });
 

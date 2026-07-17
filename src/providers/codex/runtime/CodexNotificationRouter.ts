@@ -77,6 +77,8 @@ export class CodexNotificationRouter {
   private wrappedCommandCallIdsByCellId = new Map<string, string>();
   private wrappedCommandOutputByCallId = new Map<string, string>();
   private wrappedWaitCallsByCallId = new Map<string, WrappedWaitCall>();
+  private rawCommandWrapperIdsByFingerprint = new Map<string, string[]>();
+  private suppressedSemanticCommandIds = new Set<string>();
   private suppressedRawCallIds = new Set<string>();
   private fileChangeInputsById = new Map<string, Record<string, unknown>>();
 
@@ -145,6 +147,8 @@ export class CodexNotificationRouter {
     this.wrappedCommandCallIdsByCellId.clear();
     this.wrappedCommandOutputByCallId.clear();
     this.wrappedWaitCallsByCallId.clear();
+    this.rawCommandWrapperIdsByFingerprint.clear();
+    this.suppressedSemanticCommandIds.clear();
     this.suppressedRawCallIds.clear();
     this.fileChangeInputsById.clear();
   }
@@ -164,6 +168,8 @@ export class CodexNotificationRouter {
     this.wrappedCommandCallIdsByCellId.clear();
     this.wrappedCommandOutputByCallId.clear();
     this.wrappedWaitCallsByCallId.clear();
+    this.rawCommandWrapperIdsByFingerprint.clear();
+    this.suppressedSemanticCommandIds.clear();
     this.suppressedRawCallIds.clear();
     this.fileChangeInputsById.clear();
   }
@@ -259,7 +265,11 @@ export class CodexNotificationRouter {
         break;
 
       case 'commandExecution':
-        this.emitToolUseFromCommand(item);
+        if (this.claimRawCommandWrapper(item)) {
+          this.suppressedSemanticCommandIds.add(item.id);
+        } else {
+          this.emitToolUseFromCommand(item);
+        }
         break;
 
       case 'fileChange':
@@ -304,6 +314,9 @@ export class CodexNotificationRouter {
         break;
 
       case 'commandExecution':
+        if (this.suppressedSemanticCommandIds.delete(item.id)) {
+          break;
+        }
         this.emitToolResultFromCommand(item, rawResult);
         break;
 
@@ -454,6 +467,10 @@ export class CodexNotificationRouter {
     this.rawToolNamesByCallId.set(callId, normalized.name);
     this.rawToolInputsByCallId.set(callId, normalized.input);
 
+    if (rawName === 'exec' && normalized.name === normalizeCodexToolName('exec_command')) {
+      this.rememberRawCommandWrapper(callId, normalized.input);
+    }
+
     this.resetAssistantSegmentText();
     this.emit({
       type: 'tool_use',
@@ -487,6 +504,8 @@ export class CodexNotificationRouter {
 
     const rawOutput = item.output;
     const rawOutputText = stringifyCodexToolOutput(rawOutput);
+    this.removePendingRawCommandWrapper(callId);
+
     const content = normalizeRawToolOutput(
       normalizedName,
       rawOutput,
@@ -554,6 +573,43 @@ export class CodexNotificationRouter {
     }
   }
 
+  private rememberRawCommandWrapper(
+    callId: string,
+    input: Record<string, unknown>,
+  ): void {
+    const fingerprint = createCommandFingerprint(input);
+    if (fingerprint) {
+      queuePendingId(this.rawCommandWrapperIdsByFingerprint, fingerprint, callId);
+    }
+  }
+
+  private claimRawCommandWrapper(item: CommandExecutionItem): boolean {
+    // The outer raw exec item precedes its nested semantic command item on the wire.
+    // Keep the raw card as the display owner and suppress the matching semantic lifecycle.
+    const commandInputs = [
+      normalizeCodexToolInput('command_execution', { command: item.command }),
+      buildCommandInput(item),
+    ];
+    for (const input of commandInputs) {
+      const fingerprint = createCommandFingerprint(input);
+      if (
+        fingerprint
+        && takePendingId(this.rawCommandWrapperIdsByFingerprint, fingerprint) !== undefined
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private removePendingRawCommandWrapper(callId: string): void {
+    const input = this.rawToolInputsByCallId.get(callId);
+    const fingerprint = input ? createCommandFingerprint(input) : null;
+    if (fingerprint) {
+      removePendingId(this.rawCommandWrapperIdsByFingerprint, fingerprint, callId);
+    }
+  }
+
   private emitMissingRawAgentMessageText(item: Record<string, unknown>): void {
     const text = item.type === 'message'
       ? readAssistantMessageText(item)
@@ -608,9 +664,8 @@ export class CodexNotificationRouter {
   // -- commandExecution -------------------------------------------------------
 
   private emitToolUseFromCommand(item: CommandExecutionItem): void {
-    const rawAction = item.commandActions?.[0]?.command ?? item.command;
     const normalizedName = normalizeCodexToolName('command_execution');
-    const input = normalizeCodexToolInput('command_execution', { command: rawAction });
+    const input = buildCommandInput(item);
 
     this.resetAssistantSegmentText();
     this.emit({ type: 'tool_use', id: item.id, name: normalizedName, input });
@@ -876,6 +931,9 @@ export class CodexNotificationRouter {
   // -- outputDelta (commandExecution + fileChange) ----------------------------
 
   private onOutputDelta(params: { itemId: string; delta: string }): void {
+    if (this.suppressedSemanticCommandIds.has(params.itemId)) {
+      return;
+    }
     this.emit({ type: 'tool_output', id: params.itemId, content: params.delta });
   }
 
@@ -936,6 +994,59 @@ function firstString(...values: unknown[]): string {
     }
   }
   return '';
+}
+
+function buildCommandInput(item: CommandExecutionItem): Record<string, unknown> {
+  const rawAction = item.commandActions?.[0]?.command ?? item.command;
+  return normalizeCodexToolInput('command_execution', { command: rawAction });
+}
+
+function createCommandFingerprint(input: Record<string, unknown>): string | null {
+  const command = firstString(input.command).trim();
+  return command ? command : null;
+}
+
+function queuePendingId(
+  pendingIds: Map<string, string[]>,
+  fingerprint: string,
+  id: string,
+): void {
+  const ids = pendingIds.get(fingerprint);
+  if (ids) {
+    ids.push(id);
+    return;
+  }
+  pendingIds.set(fingerprint, [id]);
+}
+
+function takePendingId(
+  pendingIds: Map<string, string[]>,
+  fingerprint: string,
+): string | undefined {
+  const ids = pendingIds.get(fingerprint);
+  const id = ids?.shift();
+  if (ids?.length === 0) {
+    pendingIds.delete(fingerprint);
+  }
+  return id;
+}
+
+function removePendingId(
+  pendingIds: Map<string, string[]>,
+  fingerprint: string,
+  id: string,
+): void {
+  const ids = pendingIds.get(fingerprint);
+  if (!ids) {
+    return;
+  }
+
+  const remainingIds = ids.filter(pendingId => pendingId !== id);
+  if (remainingIds.length > 0) {
+    pendingIds.set(fingerprint, remainingIds);
+    return;
+  }
+  pendingIds.delete(fingerprint);
 }
 
 function getItemId(item: { id?: string } | Record<string, unknown>): string | undefined {
