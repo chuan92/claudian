@@ -6,6 +6,7 @@ import {
   normalizeHiddenCommandList,
 } from '../../core/providers/commands/hiddenCommands';
 import { ProviderRegistry } from '../../core/providers/ProviderRegistry';
+import { ProviderSettingsCoordinator } from '../../core/providers/ProviderSettingsCoordinator';
 import { ProviderWorkspaceRegistry } from '../../core/providers/ProviderWorkspaceRegistry';
 import type { ProviderId } from '../../core/providers/types';
 import type { ChatViewPlacement } from '../../core/types/settings';
@@ -107,6 +108,7 @@ function addHotkeySettingRow(
 export class ClaudianSettingTab extends PluginSettingTab {
   plugin: FeatureHost;
   private activeTab: SettingsTabId = 'general';
+  private refreshTitleModelOptions: (() => void) | null = null;
 
   constructor(app: App, plugin: FeatureHost & Plugin) {
     super(app, plugin);
@@ -117,6 +119,7 @@ export class ClaudianSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
     containerEl.addClass('claudian-settings');
+    this.refreshTitleModelOptions = null;
 
     setLocale(this.plugin.settings.locale as Locale);
 
@@ -175,6 +178,7 @@ export class ClaudianSettingTab extends PluginSettingTab {
             view.refreshModelSelector();
           }
         },
+        refreshTitleGenerationModelOptions: () => this.refreshTitleModelOptions?.(),
         renderCustomContextLimits: (target, providerId) => this.renderCustomContextLimits(target, providerId),
       });
     }
@@ -316,27 +320,24 @@ export class ClaudianSettingTab extends PluginSettingTab {
         .setName(t('settings.titleModel.name'))
         .setDesc(t('settings.titleModel.desc'))
         .addDropdown((dropdown) => {
-          dropdown.addOption('', t('settings.titleModel.auto'));
+          const refreshOptions = (): void => {
+            dropdown.selectEl.replaceChildren();
+            dropdown.addOption('', t('settings.titleModel.auto'));
 
-          const settingsBag = this.plugin.settings as unknown as Record<string, unknown>;
-          const seenValues = new Set<string>();
-          for (const providerId of ProviderRegistry.getRegisteredProviderIds()) {
-            const uiConfig = ProviderRegistry.getChatUIConfig(providerId);
-            for (const model of uiConfig.getModelOptions(settingsBag)) {
-              if (!seenValues.has(model.value)) {
-                seenValues.add(model.value);
-                dropdown.addOption(model.value, model.label);
-              }
+            const settingsBag = this.plugin.settings as unknown as Record<string, unknown>;
+            for (const model of ProviderRegistry.getTitleGenerationModelOptions(settingsBag)) {
+              dropdown.addOption(model.value, model.label);
             }
-          }
+            dropdown.setValue(this.plugin.settings.titleGenerationModel || '');
+          };
 
-          dropdown
-            .setValue(this.plugin.settings.titleGenerationModel || '')
-            .onChange(async (value) => {
-              await this.plugin.mutateSettings((settings) => {
-                settings.titleGenerationModel = value;
-              });
+          this.refreshTitleModelOptions = refreshOptions;
+          refreshOptions();
+          dropdown.onChange(async (value) => {
+            await this.plugin.mutateSettings((settings) => {
+              ProviderSettingsCoordinator.applyTitleGenerationModelSelection(settings, value);
             });
+          });
         });
     }
 

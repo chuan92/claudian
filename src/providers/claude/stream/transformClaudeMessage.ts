@@ -1,15 +1,22 @@
 import type { SDKMessage, SDKResultError } from '@anthropic-ai/claude-agent-sdk';
 
+import type { AsyncSubagentCompletion } from '../../../core/runtime/types';
 import type { SDKToolUseResult, StreamChunk, UsageInfo } from '../../../core/types';
+import {
+  CLAUDE_MODEL_TIER_PATTERN,
+  type ClaudeModelTier,
+  getClaudeModelTierDefinition,
+  isClaudeModelTier,
+} from '../modelTiers';
 import { isBlockedMessage } from '../sdk/messages';
 import { extractToolResultContent } from '../sdk/toolResultContent';
-import type { TransformEvent } from '../sdk/types';
-import { getContextWindowSize, isDefaultClaudeModel } from '../types/models';
+import type { ClaudeAsyncSubagentCompletionEvent, TransformEvent } from '../sdk/types';
+import { isDefaultClaudeModel, resolveContextWindowSize } from '../types/models';
 import { createTransformStreamState, type TransformStreamState } from './toolInputStreamState';
 
 type ToolUseFields = { id: string; name: string; input: Record<string, unknown> };
 type ToolResultFields = { id: string; content: string; isError?: boolean; toolUseResult?: SDKToolUseResult };
-type AsyncSubagentResultStatus = Extract<StreamChunk, { type: 'async_subagent_result' }>['status'];
+type AsyncSubagentCompletionStatus = AsyncSubagentCompletion['status'];
 
 export { createTransformStreamState };
 
@@ -34,34 +41,43 @@ function emitToolResult(parentToolUseId: string | null, fields: ToolResultFields
   return { type: 'subagent_tool_result', subagentId: parentToolUseId, ...fields };
 }
 
-function normalizeTaskNotificationStatus(status: unknown): AsyncSubagentResultStatus {
+function normalizeTaskNotificationStatus(status: unknown): AsyncSubagentCompletionStatus {
   return status === 'completed' ? 'completed' : 'error';
 }
 
-function normalizeTaskNotificationResult(status: AsyncSubagentResultStatus, summary: unknown): string {
+function normalizeTaskNotificationResult(status: AsyncSubagentCompletionStatus, summary: unknown): string {
   if (typeof summary === 'string' && summary.trim().length > 0) {
     return summary.trim();
   }
   return status === 'completed' ? 'Background task completed.' : 'Background task failed.';
 }
 
-function transformTaskNotification(message: SDKMessage): StreamChunk | null {
+function transformTaskNotification(message: SDKMessage): ClaudeAsyncSubagentCompletionEvent | null {
   if (message.type !== 'system' || message.subtype !== 'task_notification') {
     return null;
   }
 
   const record = message as unknown as Record<string, unknown>;
   const taskId = record.task_id;
-  if (typeof taskId !== 'string' || taskId.length === 0) {
+  const providerSessionId = record.session_id;
+  if (
+    typeof taskId !== 'string'
+    || taskId.length === 0
+    || typeof providerSessionId !== 'string'
+    || providerSessionId.length === 0
+  ) {
     return null;
   }
 
   const status = normalizeTaskNotificationStatus(record.status);
+  const toolUseId = record.tool_use_id;
   return {
-    type: 'async_subagent_result',
-    agentId: taskId,
+    type: 'async_subagent_completion',
+    providerSessionId,
+    taskId,
     status,
     result: normalizeTaskNotificationResult(status, record.summary),
+    ...(typeof toolUseId === 'string' && toolUseId.length > 0 ? { toolUseId } : {}),
   };
 }
 
@@ -107,7 +123,7 @@ interface ContextWindowEntry {
 
 interface ClaudeModelSignature {
   normalizedModel: string;
-  family: 'haiku' | 'sonnet' | 'opus' | 'fable';
+  family: ClaudeModelTier;
   is1M: boolean;
   major?: string;
   minor?: string;
@@ -126,22 +142,23 @@ function normalizeClaudeModelId(model: string): string {
 
 function parseClaudeModelSignature(model: string): ClaudeModelSignature | null {
   const normalized = normalizeClaudeModelId(model);
-  if (normalized === 'haiku') {
-    return { normalizedModel: normalized, family: 'haiku', is1M: false };
-  }
-  if (normalized === 'sonnet' || normalized === 'sonnet[1m]') {
-    return { normalizedModel: normalized, family: 'sonnet', is1M: normalized.endsWith('[1m]') };
-  }
-  if (normalized === 'opus' || normalized === 'opus[1m]') {
-    return { normalizedModel: normalized, family: 'opus', is1M: normalized.endsWith('[1m]') };
+  const aliasMatch = normalized.match(/^(\w+?)(\[1m\])?$/);
+  if (aliasMatch && isClaudeModelTier(aliasMatch[1])) {
+    const family = aliasMatch[1];
+    const hasOneMillionSuffix = aliasMatch[2] !== undefined;
+    if (hasOneMillionSuffix && !getClaudeModelTierDefinition(family).supportsOneMillionSuffix) {
+      return null;
+    }
+    return { normalizedModel: normalized, family, is1M: hasOneMillionSuffix };
   }
 
-  const versionedMatch = normalized.match(
-    /^claude-(haiku|sonnet|opus|fable)-(\d+)(?:-(\d+))?(?:-(\d{8}))?(?:-v\d+:\d+)?(\[1m\])?$/,
-  );
+  const versionedMatch = normalized.match(new RegExp(
+    `^claude-(${CLAUDE_MODEL_TIER_PATTERN})-(\\d+)(?:-(\\d+))?`
+    + '(?:-(\\d{8}))?(?:-v\\d+:\\d+)?(\\[1m\\])?$',
+  ));
   if (versionedMatch) {
     const [, familyMatch, major, minor, date, oneMillionSuffix] = versionedMatch;
-    const family = familyMatch as ClaudeModelSignature['family'];
+    const family = familyMatch as ClaudeModelTier;
     return {
       normalizedModel: normalized,
       family,
@@ -305,12 +322,12 @@ function samePromptUsage(a: PromptUsageSnapshot, b: PromptUsageSnapshot): boolea
 
 function buildUsageInfo(promptUsage: PromptUsageSnapshot, options?: TransformOptions): UsageInfo {
   const model = options?.intendedModel ?? 'sonnet';
-  const hasAuthoritativeContextWindow = typeof options?.authoritativeContextWindow === 'number'
-    && options.authoritativeContextWindow > 0
-    && Number.isFinite(options.authoritativeContextWindow);
-  const contextWindow = hasAuthoritativeContextWindow
-    ? options.authoritativeContextWindow!
-    : getContextWindowSize(model, options?.customContextLimits);
+  const contextWindowResolution = resolveContextWindowSize(
+    model,
+    options?.customContextLimits,
+    options?.authoritativeContextWindow,
+  );
+  const { contextWindow } = contextWindowResolution;
   const percentage = Math.min(100, Math.max(0, Math.round((promptUsage.contextTokens / contextWindow) * 100)));
 
   return {
@@ -319,7 +336,7 @@ function buildUsageInfo(promptUsage: PromptUsageSnapshot, options?: TransformOpt
     cacheCreationInputTokens: promptUsage.cacheCreationInputTokens,
     cacheReadInputTokens: promptUsage.cacheReadInputTokens,
     contextWindow,
-    ...(hasAuthoritativeContextWindow ? { contextWindowIsAuthoritative: true } : {}),
+    ...(contextWindowResolution.source === 'runtime' ? { contextWindowIsAuthoritative: true } : {}),
     contextTokens: promptUsage.contextTokens,
     percentage,
   };

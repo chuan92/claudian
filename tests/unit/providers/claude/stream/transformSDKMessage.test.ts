@@ -93,11 +93,12 @@ describe('transformSDKMessage', () => {
       });
     });
 
-    it('normalizes task_notification completion into async subagent result', () => {
+    it('normalizes task_notification into a scoped completion event', () => {
       const message = msg({
         type: 'system',
         subtype: 'task_notification',
         task_id: 'agent-123',
+        tool_use_id: 'task-123',
         status: 'completed',
         output_file: '/tmp/agent-123.output',
         summary: 'Agent completed successfully.',
@@ -107,8 +108,10 @@ describe('transformSDKMessage', () => {
 
       expect(results).toEqual([
         {
-          type: 'async_subagent_result',
-          agentId: 'agent-123',
+          type: 'async_subagent_completion',
+          providerSessionId: 'test-session',
+          taskId: 'agent-123',
+          toolUseId: 'task-123',
           status: 'completed',
           result: 'Agent completed successfully.',
         },
@@ -129,8 +132,9 @@ describe('transformSDKMessage', () => {
 
       expect(results).toEqual([
         {
-          type: 'async_subagent_result',
-          agentId: 'agent-failed',
+          type: 'async_subagent_completion',
+          providerSessionId: 'test-session',
+          taskId: 'agent-failed',
           status: 'error',
           result: 'Agent failed.',
         },
@@ -1034,6 +1038,44 @@ describe('transformSDKMessage', () => {
       ]);
     });
 
+    it('prefers an explicit custom-model context limit over the SDK runtime window', () => {
+      const usageState = createTransformUsageState();
+      const assistantMessage = msg({
+        type: 'assistant',
+        parent_tool_use_id: null,
+        message: {
+          content: [{ type: 'text', text: 'Hello' }],
+          usage: {
+            input_tokens: 250000,
+            output_tokens: 4,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+          },
+        },
+      });
+
+      expect([...transformSDKMessage(assistantMessage, {
+        intendedModel: 'custom-model',
+        customContextLimits: { 'custom-model': 1_000_000 },
+        authoritativeContextWindow: 200_000,
+        usageState,
+      })]).toEqual([
+        { type: 'text', content: 'Hello' },
+        {
+          type: 'usage',
+          usage: {
+            model: 'custom-model',
+            inputTokens: 250000,
+            cacheCreationInputTokens: 0,
+            cacheReadInputTokens: 0,
+            contextWindow: 1_000_000,
+            contextTokens: 250000,
+            percentage: 25,
+          },
+        },
+      ]);
+    });
+
     it('emits message_start prompt usage at result when no assistant usage arrives', () => {
       const usageState = createTransformUsageState();
       const startMessage = msg({
@@ -1317,7 +1359,7 @@ describe('transformSDKMessage', () => {
         },
       });
 
-      const results = [...transformSDKMessage(message, { intendedModel: 'claude-fable-5' })];
+      const results = [...transformSDKMessage(message, { intendedModel: 'fable' })];
 
       expect(results).toEqual([
         { type: 'context_window', contextWindow: 1000000 },
