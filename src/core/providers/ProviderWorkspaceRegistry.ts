@@ -55,6 +55,20 @@ export class ProviderWorkspaceRegistry {
     }
   }
 
+  static startBackgroundTasks(): void {
+    for (const services of Object.values(this.services)) {
+      if (!services?.startBackgroundTasks) {
+        continue;
+      }
+
+      try {
+        void services.startBackgroundTasks().catch(() => undefined);
+      } catch {
+        // A provider's optional background work must not affect plugin startup.
+      }
+    }
+  }
+
   static setServices(
     providerId: ProviderId,
     services: ProviderWorkspaceServices | undefined,

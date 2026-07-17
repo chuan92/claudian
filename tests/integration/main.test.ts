@@ -1,6 +1,7 @@
 
 import { TFile, TFolder } from 'obsidian';
 
+import { ProviderWorkspaceRegistry } from '@/core/providers/ProviderWorkspaceRegistry';
 import { TOOL_SUBAGENT } from '@/core/tools/toolNames';
 import { VIEW_TYPE_CLAUDIAN } from '@/core/types';
 import * as sdkSession from '@/providers/claude/history/ClaudeHistoryStore';
@@ -62,6 +63,7 @@ describe('ClaudianPlugin', () => {
         },
       },
       workspace: {
+        onLayoutReady: jest.fn(),
         getLeavesOfType: jest.fn().mockReturnValue([]),
         getRightLeaf: jest.fn().mockReturnValue({
           setViewState: jest.fn().mockResolvedValue(undefined),
@@ -126,6 +128,23 @@ describe('ClaudianPlugin', () => {
         name: 'Open chat view',
         callback: expect.any(Function),
       });
+    });
+
+    it('starts provider background work only after the workspace layout is ready', async () => {
+      const startBackgroundTasks = jest
+        .spyOn(ProviderWorkspaceRegistry, 'startBackgroundTasks')
+        .mockImplementation(() => undefined);
+
+      await plugin.onload();
+
+      expect(startBackgroundTasks).not.toHaveBeenCalled();
+      expect(mockApp.workspace.onLayoutReady).toHaveBeenCalledWith(expect.any(Function));
+
+      const onLayoutReady = mockApp.workspace.onLayoutReady.mock.calls[0][0];
+      onLayoutReady();
+
+      expect(startBackgroundTasks).toHaveBeenCalledTimes(1);
+      startBackgroundTasks.mockRestore();
     });
 
   });

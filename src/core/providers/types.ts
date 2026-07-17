@@ -398,6 +398,8 @@ export interface ProviderWorkspaceServices {
   settingsTabRenderer?: ProviderSettingsTabRenderer | null;
   refreshAgentMentions?(): Promise<void>;
   refreshModelCatalog?(): Promise<ProviderModelCatalogRefreshResult>;
+  /** Runs optional provider work after Obsidian's layout is ready. */
+  startBackgroundTasks?(): Promise<void>;
 }
 
 export interface ProviderModelCatalogRefreshResult {

@@ -186,6 +186,10 @@ export default class ClaudianPlugin extends Plugin {
     });
 
     this.addSettingTab(new ClaudianSettingTab(this.app, this));
+
+    this.app.workspace.onLayoutReady(() => {
+      ProviderWorkspaceRegistry.startBackgroundTasks();
+    });
   }
 
   private registerConversationNoteAssociationEvents(): void {

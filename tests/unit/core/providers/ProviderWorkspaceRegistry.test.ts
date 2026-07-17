@@ -81,4 +81,36 @@ describe('ProviderWorkspaceRegistry', () => {
 
     expect(ProviderWorkspaceRegistry.getTabWarmupPolicy('opencode')).toBe(tabWarmupPolicy);
   });
+
+  it('starts provider background work without awaiting it', () => {
+    const pending = new Promise<void>(() => {});
+    const startBackgroundTasks = jest.fn().mockReturnValue(pending);
+    ProviderWorkspaceRegistry.setServices('codex', { startBackgroundTasks });
+
+    expect(ProviderWorkspaceRegistry.startBackgroundTasks()).toBeUndefined();
+    expect(startBackgroundTasks).toHaveBeenCalledTimes(1);
+  });
+
+  it('isolates synchronous background startup failures between providers', () => {
+    const startClaude = jest.fn(() => {
+      throw new Error('background startup failed');
+    });
+    const startCodex = jest.fn().mockResolvedValue(undefined);
+    ProviderWorkspaceRegistry.setServices('claude', { startBackgroundTasks: startClaude });
+    ProviderWorkspaceRegistry.setServices('codex', { startBackgroundTasks: startCodex });
+
+    expect(() => ProviderWorkspaceRegistry.startBackgroundTasks()).not.toThrow();
+    expect(startClaude).toHaveBeenCalledTimes(1);
+    expect(startCodex).toHaveBeenCalledTimes(1);
+  });
+
+  it('absorbs rejected background work', async () => {
+    const startBackgroundTasks = jest.fn().mockRejectedValue(new Error('refresh failed'));
+    ProviderWorkspaceRegistry.setServices('codex', { startBackgroundTasks });
+
+    ProviderWorkspaceRegistry.startBackgroundTasks();
+    await Promise.resolve();
+
+    expect(startBackgroundTasks).toHaveBeenCalledTimes(1);
+  });
 });

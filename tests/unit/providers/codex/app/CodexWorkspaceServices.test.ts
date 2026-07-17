@@ -92,12 +92,16 @@ describe('CodexWorkspaceServices', () => {
     jest.clearAllMocks();
   });
 
-  it('loads the app-server catalog in memory without rewriting settings during startup', async () => {
+  it('defers app-server catalog discovery until background work starts', async () => {
     const plugin = createPlugin(true);
     const sol = makeDiscoveredModel('gpt-5.6-sol');
     mockDiscoverModels.mockResolvedValue({ kind: 'completed', models: [sol] });
 
-    await createCodexWorkspaceServices(plugin, {} as any, {} as any);
+    const services = await createCodexWorkspaceServices(plugin, {} as any, {} as any);
+
+    expect(mockDiscoverModels).not.toHaveBeenCalled();
+
+    await services.startBackgroundTasks?.();
 
     expect(mockDiscoverModels).toHaveBeenCalledTimes(1);
     expect(getCodexProviderSettings(plugin.settings).discoveredModels).toEqual([sol]);
@@ -105,7 +109,7 @@ describe('CodexWorkspaceServices', () => {
     expect(plugin.saveSettings).not.toHaveBeenCalled();
   });
 
-  it('persists a selection normalization caused by startup discovery', async () => {
+  it('persists a selection normalization caused by background discovery', async () => {
     const plugin = createPlugin(true);
     mockDiscoverModels.mockResolvedValue({
       kind: 'completed',
@@ -113,7 +117,8 @@ describe('CodexWorkspaceServices', () => {
     });
     mockNormalizeAllModelVariants.mockReturnValueOnce(true);
 
-    await createCodexWorkspaceServices(plugin, {} as any, {} as any);
+    const services = await createCodexWorkspaceServices(plugin, {} as any, {} as any);
+    await services.startBackgroundTasks?.();
 
     expect(plugin.saveSettings).toHaveBeenCalledTimes(1);
   });
@@ -121,10 +126,31 @@ describe('CodexWorkspaceServices', () => {
   it('does not start app-server for a disabled provider', async () => {
     const plugin = createPlugin(false);
 
-    await createCodexWorkspaceServices(plugin, {} as any, {} as any);
+    const services = await createCodexWorkspaceServices(plugin, {} as any, {} as any);
+    await services.startBackgroundTasks?.();
 
     expect(mockDiscoverModels).not.toHaveBeenCalled();
     expect(plugin.saveSettings).not.toHaveBeenCalled();
+  });
+
+  it('deduplicates a manual refresh while background discovery is in flight', async () => {
+    let resolveDiscovery!: (value: unknown) => void;
+    mockDiscoverModels.mockReturnValue(new Promise((resolve) => {
+      resolveDiscovery = resolve;
+    }));
+    const plugin = createPlugin(true);
+    const services = await createCodexWorkspaceServices(plugin, {} as any, {} as any);
+
+    const backgroundRefresh = services.startBackgroundTasks?.();
+    const manualRefresh = services.refreshModelCatalog!();
+
+    expect(mockDiscoverModels).toHaveBeenCalledTimes(1);
+
+    resolveDiscovery({
+      kind: 'completed',
+      models: [makeDiscoveredModel('gpt-5.6-sol')],
+    });
+    await Promise.all([backgroundRefresh, manualRefresh]);
   });
 
   it('treats a disabled catalog refresh as skipped without diagnostics', async () => {

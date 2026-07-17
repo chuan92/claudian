@@ -4,6 +4,7 @@ import { ProviderSettingsCoordinator } from '../../../core/providers/ProviderSet
 import { ProviderWorkspaceRegistry } from '../../../core/providers/ProviderWorkspaceRegistry';
 import type {
   ProviderCliResolver,
+  ProviderModelCatalogRefreshResult,
   ProviderWorkspaceRegistration,
   ProviderWorkspaceServices,
 } from '../../../core/providers/types';
@@ -59,6 +60,61 @@ export async function createCodexWorkspaceServices(
     getVaultPath(plugin.app),
   );
 
+  let pendingModelCatalogRefresh: Promise<ProviderModelCatalogRefreshResult> | null = null;
+
+  const runModelCatalogRefresh = async (): Promise<ProviderModelCatalogRefreshResult> => {
+    const result = await modelDiscovery.discoverModels();
+    if (result.kind === 'skipped') {
+      return { changed: false };
+    }
+    if (result.diagnostics) {
+      return { changed: false, diagnostics: result.diagnostics };
+    }
+    if (result.models.length === 0) {
+      return { changed: false, diagnostics: 'Codex app-server returned no visible models' };
+    }
+
+    let refreshResult = { changed: false, persistedSettingsChanged: false };
+    await plugin.mutateSettingsConditionally((settings) => {
+      const currentSettings = getCodexProviderSettings(settings);
+      const currentModels = currentSettings.discoveredModels;
+      const visibleModels = normalizeCodexVisibleModels(
+        currentSettings.visibleModels,
+        result.models,
+      );
+      const catalogChanged = !sameCatalog(currentModels, result.models);
+      const visibilityChanged = !sameCatalog(currentSettings.visibleModels, visibleModels);
+      if (catalogChanged || visibilityChanged) {
+        updateCodexProviderSettings(settings, {
+          discoveredModels: result.models,
+          visibleModels,
+        });
+      }
+      const selectionChanged = ProviderSettingsCoordinator.normalizeAllModelVariants(settings);
+      const persistedSettingsChanged = visibilityChanged || selectionChanged;
+      refreshResult = {
+        changed: catalogChanged || persistedSettingsChanged,
+        persistedSettingsChanged,
+      };
+      return persistedSettingsChanged;
+    });
+    return refreshResult;
+  };
+
+  const refreshModelCatalog = (): Promise<ProviderModelCatalogRefreshResult> => {
+    if (pendingModelCatalogRefresh) {
+      return pendingModelCatalogRefresh;
+    }
+
+    const refresh = runModelCatalogRefresh().finally(() => {
+      if (pendingModelCatalogRefresh === refresh) {
+        pendingModelCatalogRefresh = null;
+      }
+    });
+    pendingModelCatalogRefresh = refresh;
+    return refresh;
+  };
+
   const services: CodexWorkspaceServices = {
     subagentStorage,
     commandCatalog,
@@ -68,49 +124,18 @@ export async function createCodexWorkspaceServices(
     refreshAgentMentions: async () => {
       await agentMentionProvider.loadAgents();
     },
-    refreshModelCatalog: async () => {
-      const result = await modelDiscovery.discoverModels();
-      if (result.kind === 'skipped') {
-        return { changed: false };
-      }
-      if (result.diagnostics) {
-        return { changed: false, diagnostics: result.diagnostics };
-      }
-      if (result.models.length === 0) {
-        return { changed: false, diagnostics: 'Codex app-server returned no visible models' };
+    refreshModelCatalog,
+    startBackgroundTasks: async () => {
+      if (!getCodexProviderSettings(plugin.settings).enabled) {
+        return;
       }
 
-      let refreshResult = { changed: false, persistedSettingsChanged: false };
-      await plugin.mutateSettingsConditionally((settings) => {
-        const currentSettings = getCodexProviderSettings(settings);
-        const currentModels = currentSettings.discoveredModels;
-        const visibleModels = normalizeCodexVisibleModels(
-          currentSettings.visibleModels,
-          result.models,
-        );
-        const catalogChanged = !sameCatalog(currentModels, result.models);
-        const visibilityChanged = !sameCatalog(currentSettings.visibleModels, visibleModels);
-        if (catalogChanged || visibilityChanged) {
-          updateCodexProviderSettings(settings, {
-            discoveredModels: result.models,
-            visibleModels,
-          });
-        }
-        const selectionChanged = ProviderSettingsCoordinator.normalizeAllModelVariants(settings);
-        const persistedSettingsChanged = visibilityChanged || selectionChanged;
-        refreshResult = {
-          changed: catalogChanged || persistedSettingsChanged,
-          persistedSettingsChanged,
-        };
-        return persistedSettingsChanged;
-      });
-      return refreshResult;
+      const result = await refreshModelCatalog();
+      if (result.changed) {
+        plugin.refreshModelSelectors?.();
+      }
     },
   };
-
-  if (getCodexProviderSettings(plugin.settings).enabled) {
-    await services.refreshModelCatalog!();
-  }
 
   return services;
 }
