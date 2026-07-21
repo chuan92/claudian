@@ -160,6 +160,15 @@ describe('ConversationController', () => {
         expect(fileContextManager.autoAttachActiveFile).toHaveBeenCalled();
       });
 
+      it('should recreate the branded welcome for a new conversation', async () => {
+        await controller.createNew();
+
+        const welcomeEl = deps.getWelcomeEl()!;
+        expect(welcomeEl.querySelector('.claudian-welcome-brand')?.textContent)
+          .toBe('Claudian');
+        expect(welcomeEl.querySelector('.claudian-welcome-greeting')).not.toBeNull();
+      });
+
       it('should clear todos for new conversation', async () => {
         deps.state.currentTodos = [
           { content: 'Existing todo', status: 'pending', activeForm: 'Doing existing todo' }
@@ -374,16 +383,13 @@ describe('ConversationController', () => {
       const welcomeEl = deps.getWelcomeEl()!;
       const createDivSpy = jest.spyOn(welcomeEl, 'createDiv');
 
-      // First call should add greeting
       controller.initializeWelcome();
-      expect(createDivSpy).toHaveBeenCalledTimes(1);
+      const initialCallCount = createDivSpy.mock.calls.length;
+      expect(welcomeEl.querySelector('.claudian-welcome-brand')).not.toBeNull();
+      expect(welcomeEl.querySelector('.claudian-welcome-greeting')).not.toBeNull();
 
-      // Mock querySelector to return an element (greeting already exists)
-      welcomeEl.querySelector = jest.fn().mockReturnValue(createMockEl());
-
-      // Second call should not add another greeting
       controller.initializeWelcome();
-      expect(createDivSpy).toHaveBeenCalledTimes(1); // Still 1, not 2
+      expect(createDivSpy).toHaveBeenCalledTimes(initialCallCount);
     });
   });
 
@@ -901,6 +907,89 @@ describe('ConversationController', () => {
         expect(container.children.length).toBe(3); // header + search + list
       });
 
+      it('paginates large history lists and loads the next bounded page on demand', () => {
+        const container = createMockEl();
+        (deps.plugin.getConversationList as jest.Mock).mockReturnValue(
+          Array.from({ length: 125 }, (_, index) => ({
+            id: `conv-${index}`,
+            title: `Conversation ${index}`,
+            createdAt: 125 - index,
+          })),
+        );
+
+        controller.renderHistoryDropdown(container, {
+          onSelectConversation: jest.fn(),
+          pageSize: 25,
+        });
+
+        let list = container.querySelector('.claudian-history-list')!;
+        expect(list.querySelectorAll('.claudian-history-item')).toHaveLength(25);
+        const loadMore = list.querySelector('.claudian-history-load-more');
+        expect(loadMore).not.toBeNull();
+
+        loadMore!.click();
+        list = container.querySelector('.claudian-history-list')!;
+        expect(list.querySelectorAll('.claudian-history-item')).toHaveLength(50);
+        expect(list.querySelector('.claudian-history-load-more')).not.toBeNull();
+      });
+
+      it('applies note and search filters before paginating results', () => {
+        const container = createMockEl();
+        (deps.plugin.getConversationList as jest.Mock).mockReturnValue([
+          ...Array.from({ length: 15 }, (_, index) => ({
+            id: `matching-${index}`,
+            title: `Matching conversation ${index}`,
+            currentNote: 'notes/target.md',
+            createdAt: 100 - index,
+          })),
+          ...Array.from({ length: 15 }, (_, index) => ({
+            id: `other-title-${index}`,
+            title: `Other conversation ${index}`,
+            currentNote: 'notes/target.md',
+            createdAt: 80 - index,
+          })),
+          ...Array.from({ length: 15 }, (_, index) => ({
+            id: `other-note-${index}`,
+            title: `Matching conversation elsewhere ${index}`,
+            currentNote: 'notes/elsewhere.md',
+            createdAt: 60 - index,
+          })),
+        ]);
+
+        controller.renderHistoryDropdown(container, {
+          onSelectConversation: jest.fn(),
+          noteFilter: 'notes/target.md',
+          pageSize: 10,
+        });
+
+        const searchInput = container.querySelector('.claudian-history-search-input')!;
+        (searchInput as any).value = 'matching';
+        searchInput._eventListeners?.get('input')?.[0]({ stopPropagation: jest.fn() });
+
+        const list = container.querySelector('.claudian-history-list')!;
+        expect(list.querySelectorAll('.claudian-history-item')).toHaveLength(10);
+        expect(list.querySelector('.claudian-history-load-more')?.textContent)
+          .toBe('Load more (5 remaining)');
+
+        list.querySelector('.claudian-history-load-more')!.click();
+        expect(list.querySelectorAll('.claudian-history-item')).toHaveLength(15);
+        expect(list.querySelector('.claudian-history-load-more')).toBeNull();
+      });
+
+      it('does not render when the history render signal is already aborted', () => {
+        const container = createMockEl();
+        container.createDiv({ cls: 'sentinel' });
+        const abortController = new AbortController();
+        abortController.abort();
+
+        controller.renderHistoryDropdown(container, {
+          onSelectConversation: jest.fn(),
+          signal: abortController.signal,
+        });
+
+        expect(container.querySelector('.sentinel')).not.toBeNull();
+      });
+
       it('should highlight conversations already open in a tab', () => {
         const container = createMockEl();
 
@@ -1377,17 +1466,19 @@ describe('ConversationController', () => {
         (titleEl as any).replaceWith = jest.fn();
       }
 
-      const origDocument = global.document;
-      global.document = { createElement: jest.fn().mockReturnValue(mockInput) } as any;
+      const origCreateEl = item.createEl;
+      item.createEl = jest.fn().mockReturnValue(mockInput) as any;
 
       try {
         clickHandlers![0]({ stopPropagation: jest.fn() });
 
-        expect(global.document.createElement).toHaveBeenCalledWith('input');
-        expect((mockInput as any).value).toBe('Test Title');
+        expect(item.createEl).toHaveBeenCalledWith('input', {
+          cls: 'claudian-rename-input',
+          attr: { type: 'text', value: 'Test Title' },
+        });
         expect(titleEl!.replaceWith).toHaveBeenCalledWith(mockInput);
       } finally {
-        global.document = origDocument;
+        item.createEl = origCreateEl;
       }
     });
 

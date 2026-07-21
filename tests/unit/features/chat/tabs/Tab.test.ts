@@ -163,6 +163,10 @@ const createMockContextUsageMeter = () => ({
   setVisible: jest.fn(),
 });
 
+const createMockToolbarLayoutController = () => ({
+  destroy: jest.fn(),
+});
+
 const createMockExternalContextSelector = () => ({
   getExternalContexts: jest.fn().mockReturnValue([]),
   setOnChange: jest.fn(),
@@ -197,6 +201,7 @@ let mockModelSelector: ReturnType<typeof createMockModelSelector>;
 let mockModeSelector: ReturnType<typeof createMockModeSelector>;
 let mockThinkingBudgetSelector: ReturnType<typeof createMockThinkingBudgetSelector>;
 let mockContextUsageMeter: ReturnType<typeof createMockContextUsageMeter>;
+let mockToolbarLayoutController: ReturnType<typeof createMockToolbarLayoutController>;
 let mockExternalContextSelector: ReturnType<typeof createMockExternalContextSelector>;
 let mockMcpServerSelector: ReturnType<typeof createMockMcpServerSelector>;
 let mockPermissionToggle: ReturnType<typeof createMockPermissionToggle>;
@@ -277,6 +282,7 @@ jest.mock('@/features/chat/ui/InputToolbar', () => ({
     mockModeSelector = createMockModeSelector();
     mockThinkingBudgetSelector = createMockThinkingBudgetSelector();
     mockContextUsageMeter = createMockContextUsageMeter();
+    mockToolbarLayoutController = createMockToolbarLayoutController();
     mockExternalContextSelector = createMockExternalContextSelector();
     mockMcpServerSelector = createMockMcpServerSelector();
     mockPermissionToggle = createMockPermissionToggle();
@@ -286,6 +292,7 @@ jest.mock('@/features/chat/ui/InputToolbar', () => ({
       modeSelector: mockModeSelector,
       thinkingBudgetSelector: mockThinkingBudgetSelector,
       contextUsageMeter: mockContextUsageMeter,
+      layoutController: mockToolbarLayoutController,
       externalContextSelector: mockExternalContextSelector,
       mcpServerSelector: mockMcpServerSelector,
       permissionToggle: mockPermissionToggle,
@@ -508,6 +515,20 @@ describe('Tab - Creation', () => {
       expect(tab.id).toMatch(/^tab-/);
     });
 
+    it('should create the welcome container with Claudian branding', () => {
+      const tab = createTab(createMockOptions());
+
+      expect(tab.dom.welcomeEl?.querySelector('.claudian-welcome-brand')?.textContent)
+        .toBe('Claudian');
+    });
+
+    it('should describe composer actions in the input placeholder', () => {
+      const tab = createTab(createMockOptions());
+
+      expect(tab.dom.inputEl.getAttribute('placeholder'))
+        .toBe('Ask to make changes, @mention files,  run /commands');
+    });
+
     it('should use provided tab ID when specified', () => {
       const options = createMockOptions({ tabId: 'custom-tab-id' });
       const tab = createTab(options);
@@ -713,6 +734,27 @@ describe('Tab - Service Initialization', () => {
       expect(tab.serviceInitialized).toBe(true);
     });
 
+    it('does not create a runtime when the tab closes during workspace initialization', async () => {
+      let finishInitialization!: () => void;
+      const initialization = new Promise<void>((resolve) => {
+        finishInitialization = resolve;
+      });
+      jest.spyOn(ProviderWorkspaceRegistry, 'ensureInitialized').mockReturnValue(initialization);
+      const createChatRuntimeSpy = jest.spyOn(ProviderRegistry, 'createChatRuntime');
+      const options = createMockOptions();
+      const tab = createTab(options);
+
+      const serviceInitialization = initializeTabService(tab, options.plugin, options.mcpManager);
+      await Promise.resolve();
+      tab.lifecycleState = 'closing';
+      finishInitialization();
+      await serviceInitialization;
+
+      expect(createChatRuntimeSpy).not.toHaveBeenCalled();
+      expect(tab.service).toBeNull();
+      expect(tab.serviceInitialized).toBe(false);
+    });
+
     it('should create the runtime for the conversation provider', async () => {
       const createChatRuntimeSpy = jest.spyOn(ProviderRegistry, 'createChatRuntime');
       const mockRuntime = createMockClaudianService({ providerId: 'codex' });
@@ -801,10 +843,9 @@ describe('Tab - Service Initialization', () => {
 
     it('should sync existing conversations with saved external contexts', async () => {
       const mockSyncConversationState = jest.fn();
-      const runtimeModule = jest.requireMock('@/providers/claude/runtime/ClaudeChatRuntime') as { ClaudianService: jest.Mock };
-      runtimeModule.ClaudianService.mockImplementationOnce(() => createMockClaudianService({
+      jest.spyOn(ProviderRegistry, 'createChatRuntime').mockReturnValue(createMockClaudianService({
         syncConversationState: mockSyncConversationState,
-      }));
+      }) as any);
 
       const conversation = {
         id: 'conv-1',
@@ -1370,12 +1411,23 @@ describe('Tab - Destruction', () => {
       expect(tab.dom.eventCleanups.length).toBe(0);
     });
 
+    it('should destroy the input toolbar layout controller', async () => {
+      const options = createMockOptions();
+      const tab = createTab(options);
+      initializeTabUI(tab, options.plugin);
+
+      await destroyTab(tab);
+
+      expect(mockToolbarLayoutController.destroy).toHaveBeenCalledTimes(1);
+    });
+
     it('should unsubscribe from ready state changes when tab is destroyed', async () => {
       const unsubscribeFn = jest.fn();
       const mockOnReadyStateChange = jest.fn(() => unsubscribeFn);
 
-      const runtimeModule = jest.requireMock('@/providers/claude/runtime/ClaudeChatRuntime') as { ClaudianService: jest.Mock };
-      runtimeModule.ClaudianService.mockImplementationOnce(() => createMockClaudianService({ onReadyStateChange: mockOnReadyStateChange }));
+      jest.spyOn(ProviderRegistry, 'createChatRuntime').mockReturnValue(createMockClaudianService({
+        onReadyStateChange: mockOnReadyStateChange,
+      }) as any);
 
       const options = createMockOptions();
       const tab = createTab(options);

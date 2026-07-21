@@ -10,6 +10,7 @@ import { extractUserDisplayContent } from '../../../utils/context';
 import type { FeatureHost } from '../../FeatureHost';
 import type { MessageRenderer } from '../rendering/MessageRenderer';
 import { cleanupThinkingBlock } from '../rendering/ThinkingBlockRenderer';
+import { createWelcomeElement, renderWelcomeContent } from '../rendering/Welcome';
 import { findRewindContext } from '../rewind';
 import type { SubagentManager } from '../services/SubagentManager';
 import type { ChatState } from '../state/ChatState';
@@ -27,6 +28,8 @@ function runConversationAction(action: () => Promise<void>, failureMessage: stri
 function getNoteBasename(notePath: string): string {
   return notePath.split(/[\\/]/).pop() ?? notePath;
 }
+
+const DEFAULT_HISTORY_PAGE_SIZE = 100;
 
 export interface ConversationCallbacks {
   onNewConversation?: () => void;
@@ -58,6 +61,8 @@ export interface ConversationControllerDeps {
   ensureServiceForConversation?: (conversation: Conversation | null) => Promise<void>;
   dismissPendingInlinePrompts?: () => void;
   awaitBackgroundWork?: () => Promise<void>;
+  /** True once the owning tab has begun teardown. */
+  isDisposed?: () => boolean;
 }
 
 type SaveOptions = {
@@ -86,6 +91,9 @@ type HistoryRenderOptions = {
   onClearNoteFilter?: () => void;
   /** Fired when the underlying list mutates (delete) so out-of-dropdown UI like the peek can refresh. */
   onListMutated?: () => void;
+  signal?: AbortSignal;
+  pageSize?: number;
+  visibleCount?: number;
 };
 
 export class ConversationController {
@@ -181,8 +189,7 @@ export class ConversationController {
       messagesEl.empty();
 
       // Recreate welcome element first (before StatusPanel for consistent ordering)
-      const welcomeEl = messagesEl.createDiv({ cls: 'claudian-welcome' });
-      welcomeEl.createDiv({ cls: 'claudian-welcome-greeting', text: this.getGreeting() });
+      const welcomeEl = createWelcomeElement(messagesEl, this.getGreeting());
       this.deps.setWelcomeEl(welcomeEl);
 
       // Remount StatusPanel to restore state for new conversation
@@ -271,6 +278,7 @@ export class ConversationController {
   async switchTo(id: string): Promise<void> {
     const { plugin, state, subagentManager } = this.deps;
 
+    if (this.deps.isDisposed?.()) return;
     if (id === state.currentConversationId) return;
     if (state.isStreaming) return;
     if (state.isSwitchingConversation) return;
@@ -283,17 +291,20 @@ export class ConversationController {
       if (this.deps.awaitBackgroundWork) {
         await this.deps.awaitBackgroundWork();
       }
+      if (this.deps.isDisposed?.()) return;
       subagentManager.orphanAllActive();
       await this.save();
+      if (this.deps.isDisposed?.()) return;
 
       subagentManager.clear();
 
       const conversation = await plugin.switchConversation(id);
-      if (!conversation) {
+      if (!conversation || this.deps.isDisposed?.()) {
         return;
       }
 
       await this.deps.ensureServiceForConversation?.(conversation);
+      if (this.deps.isDisposed?.()) return;
 
       // Stash the draft of the conversation we're leaving; restored on switch-back.
       this.stashInputDraft();
@@ -618,6 +629,7 @@ export class ConversationController {
     options: HistoryRenderOptions
   ): void {
     const { plugin, state } = this.deps;
+    if (options.signal?.aborted) return;
 
     container.empty();
 
@@ -681,7 +693,11 @@ export class ConversationController {
       return notePath.includes(query) || noteName.includes(query);
     };
 
+    const pageSize = Math.max(1, options.pageSize ?? DEFAULT_HISTORY_PAGE_SIZE);
+    let visibleCount = Math.max(pageSize, options.visibleCount ?? pageSize);
+
     const renderList = (query: string): void => {
+      if (options.signal?.aborted) return;
       list.empty();
       const normalizedQuery = query.trim().toLowerCase();
       const conversations = normalizedQuery
@@ -700,7 +716,9 @@ export class ConversationController {
         return;
       }
 
-      for (const conv of conversations) {
+      const visibleConversations = conversations.slice(0, visibleCount);
+    for (const conv of visibleConversations) {
+      if (options.signal?.aborted) return;
       const fallbackOpenState: HistoryConversationOpenState =
         conv.id === state.currentConversationId ? 'current' : 'closed';
       const conversationStatus = this.getHistoryConversationStatus(conv.id, fallbackOpenState, options);
@@ -783,7 +801,7 @@ export class ConversationController {
 
       // Show regenerate button if title generation failed, or loading indicator if pending
       if (conv.titleGenerationStatus === 'pending') {
-        const loadingEl = actions.createEl('span', { cls: 'claudian-action-btn claudian-action-loading' });
+        const loadingEl = actions.createSpan({ cls: 'claudian-action-btn claudian-action-loading' });
         setIcon(loadingEl, 'loader-2');
         loadingEl.setAttribute('aria-label', 'Generating title...');
       } else if (conv.titleGenerationStatus === 'failed') {
@@ -838,10 +856,25 @@ export class ConversationController {
           'Failed to delete conversation',
         );
       });
-      }
+    }
+
+    if (visibleConversations.length < conversations.length && !options.signal?.aborted) {
+      const loadMoreButton = list.createEl('button', {
+        cls: 'claudian-history-load-more',
+        text: `Load more (${conversations.length - visibleConversations.length} remaining)`,
+      });
+      loadMoreButton.addEventListener('click', () => {
+        if (options.signal?.aborted) return;
+        visibleCount += pageSize;
+        renderList(searchInput.value);
+      });
+    }
     };
 
-    searchInput.addEventListener('input', () => renderList(searchInput.value));
+    searchInput.addEventListener('input', () => {
+      visibleCount = pageSize;
+      renderList(searchInput.value);
+    });
     renderList('');
   }
 
@@ -1004,10 +1037,10 @@ export class ConversationController {
     const titleEl = item.querySelector('.claudian-history-item-title') as HTMLElement;
     if (!titleEl) return;
 
-    const input = (item.ownerDocument ?? window.document).createElement('input');
-    input.type = 'text';
-    input.className = 'claudian-rename-input';
-    input.value = currentTitle;
+    const input = item.createEl('input', {
+      cls: 'claudian-rename-input',
+      attr: { type: 'text', value: currentTitle },
+    });
 
     titleEl.replaceWith(input);
     input.focus();
@@ -1125,7 +1158,7 @@ export class ConversationController {
 
     // Only add greeting if not already present
     if (!welcomeEl.querySelector('.claudian-welcome-greeting')) {
-      welcomeEl.createDiv({ cls: 'claudian-welcome-greeting', text: this.getGreeting() });
+      renderWelcomeContent(welcomeEl, this.getGreeting());
     }
 
     this.updateWelcomeVisibility();

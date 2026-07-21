@@ -421,6 +421,7 @@ export class InputController {
     }
 
     try {
+      await agentService.prepareForTurn?.();
       const preparedTurn = agentService.prepareTurn(turnRequest);
       userMsg.content = preparedTurn.persistedContent;
       userMsg.currentNote = preparedTurn.isCompact
@@ -509,7 +510,10 @@ export class InputController {
       if (!wasInvalidated && state.streamGeneration === streamGeneration) {
         const didCancelThisTurn = wasInterrupted || state.cancelRequested;
         if (didCancelThisTurn && !state.pendingNewSessionPlan) {
-          await streamController.appendText('\n\n<span class="claudian-interrupted">Interrupted</span> <span class="claudian-interrupted-hint">· What should Claudian do instead?</span>');
+          finalAssistantMsg.isInterrupt = true;
+          if (state.currentContentEl) {
+            renderer.appendInterruptIndicator(state.currentContentEl);
+          }
         }
         streamController.hideThinkingIndicator();
         state.isStreaming = false;
@@ -1000,6 +1004,7 @@ export class InputController {
     try {
       const { displayContent, request } = this.toQueuedChatTurn(queuedMessage);
 
+      await agentService.prepareForTurn?.();
       const preparedTurn = agentService.prepareTurn(request);
       const accepted = await agentService.steer(preparedTurn);
       if (state.cancelRequested || !this.pendingSteerMessage) {

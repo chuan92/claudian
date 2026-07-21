@@ -1,10 +1,8 @@
 import type { ProviderCommandCatalog } from '../../../core/providers/commands/ProviderCommandCatalog';
 import type { ProviderHost } from '../../../core/providers/ProviderHost';
-import { ProviderSettingsCoordinator } from '../../../core/providers/ProviderSettingsCoordinator';
 import { ProviderWorkspaceRegistry } from '../../../core/providers/ProviderWorkspaceRegistry';
 import type {
   ProviderCliResolver,
-  ProviderModelCatalogRefreshResult,
   ProviderWorkspaceRegistration,
   ProviderWorkspaceServices,
 } from '../../../core/providers/types';
@@ -14,12 +12,9 @@ import { getVaultPath } from '../../../utils/path';
 import { CodexAgentMentionProvider } from '../agents/CodexAgentMentionProvider';
 import { CodexSkillCatalog } from '../commands/CodexSkillCatalog';
 import { CodexCliResolver } from '../runtime/CodexCliResolver';
+import { CodexModelCatalogCoordinator } from '../runtime/CodexModelCatalogCoordinator';
 import { CodexModelDiscoveryService } from '../runtime/CodexModelDiscoveryService';
-import {
-  getCodexProviderSettings,
-  normalizeCodexVisibleModels,
-  updateCodexProviderSettings,
-} from '../settings';
+import { getCodexProviderSettings } from '../settings';
 import { CodexSkillListingService } from '../skills/CodexSkillListingService';
 import { CodexSkillStorage } from '../storage/CodexSkillStorage';
 import { CodexSubagentStorage } from '../storage/CodexSubagentStorage';
@@ -30,14 +25,28 @@ export interface CodexWorkspaceServices extends ProviderWorkspaceServices {
   commandCatalog: ProviderCommandCatalog;
   agentMentionProvider: CodexAgentMentionProvider;
   cliResolver: ProviderCliResolver;
-}
-
-function sameCatalog(left: unknown, right: unknown): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
+  modelCatalogCoordinator: CodexModelCatalogCoordinator;
 }
 
 function createCodexCliResolver(): ProviderCliResolver {
   return new CodexCliResolver();
+}
+
+async function refreshModelCatalogAfterLayoutReady(
+  plugin: ProviderHost,
+  coordinator: CodexModelCatalogCoordinator,
+): Promise<void> {
+  const result = await coordinator.ensureFresh('layout-ready');
+  if (result.refreshed) {
+    plugin.refreshModelSelectors?.();
+  }
+
+  if (result.backgroundRefresh) {
+    const backgroundResult = await result.backgroundRefresh;
+    if (backgroundResult.refreshed) {
+      plugin.refreshModelSelectors?.();
+    }
+  }
 }
 
 export async function createCodexWorkspaceServices(
@@ -47,10 +56,10 @@ export async function createCodexWorkspaceServices(
 ): Promise<CodexWorkspaceServices> {
   const subagentStorage = new CodexSubagentStorage(vaultAdapter);
   const agentMentionProvider = new CodexAgentMentionProvider(subagentStorage);
-  await agentMentionProvider.loadAgents();
 
   const skillListProvider = new CodexSkillListingService(plugin);
   const modelDiscovery = new CodexModelDiscoveryService(plugin);
+  const modelCatalogCoordinator = new CodexModelCatalogCoordinator(plugin, modelDiscovery);
   const commandCatalog = new CodexSkillCatalog(
     new CodexSkillStorage(
       vaultAdapter,
@@ -60,84 +69,27 @@ export async function createCodexWorkspaceServices(
     getVaultPath(plugin.app),
   );
 
-  let pendingModelCatalogRefresh: Promise<ProviderModelCatalogRefreshResult> | null = null;
-
-  const runModelCatalogRefresh = async (): Promise<ProviderModelCatalogRefreshResult> => {
-    const result = await modelDiscovery.discoverModels();
-    if (result.kind === 'skipped') {
-      return { changed: false };
-    }
-    if (result.diagnostics) {
-      return { changed: false, diagnostics: result.diagnostics };
-    }
-    if (result.models.length === 0) {
-      return { changed: false, diagnostics: 'Codex app-server returned no visible models' };
-    }
-
-    let refreshResult = { changed: false, persistedSettingsChanged: false };
-    await plugin.mutateSettingsConditionally((settings) => {
-      const currentSettings = getCodexProviderSettings(settings);
-      const currentModels = currentSettings.discoveredModels;
-      const visibleModels = normalizeCodexVisibleModels(
-        currentSettings.visibleModels,
-        result.models,
-      );
-      const catalogChanged = !sameCatalog(currentModels, result.models);
-      const visibilityChanged = !sameCatalog(currentSettings.visibleModels, visibleModels);
-      if (catalogChanged || visibilityChanged) {
-        updateCodexProviderSettings(settings, {
-          discoveredModels: result.models,
-          visibleModels,
-        });
-      }
-      const selectionChanged = ProviderSettingsCoordinator.normalizeAllModelVariants(settings);
-      const persistedSettingsChanged = visibilityChanged || selectionChanged;
-      refreshResult = {
-        changed: catalogChanged || persistedSettingsChanged,
-        persistedSettingsChanged,
-      };
-      return persistedSettingsChanged;
+  if (getCodexProviderSettings(plugin.settings).enabled) {
+    plugin.app.workspace.onLayoutReady(() => {
+      void refreshModelCatalogAfterLayoutReady(plugin, modelCatalogCoordinator)
+        .catch(() => undefined);
     });
-    return refreshResult;
-  };
+  }
 
-  const refreshModelCatalog = (): Promise<ProviderModelCatalogRefreshResult> => {
-    if (pendingModelCatalogRefresh) {
-      return pendingModelCatalogRefresh;
-    }
-
-    const refresh = runModelCatalogRefresh().finally(() => {
-      if (pendingModelCatalogRefresh === refresh) {
-        pendingModelCatalogRefresh = null;
-      }
-    });
-    pendingModelCatalogRefresh = refresh;
-    return refresh;
-  };
-
-  const services: CodexWorkspaceServices = {
+  return {
     subagentStorage,
     commandCatalog,
     agentMentionProvider,
     cliResolver: createCodexCliResolver(),
+    modelCatalogCoordinator,
     settingsTabRenderer: codexSettingsTabRenderer,
     refreshAgentMentions: async () => {
       await agentMentionProvider.loadAgents();
     },
-    refreshModelCatalog,
-    startBackgroundTasks: async () => {
-      if (!getCodexProviderSettings(plugin.settings).enabled) {
-        return;
-      }
-
-      const result = await refreshModelCatalog();
-      if (result.changed) {
-        plugin.refreshModelSelectors?.();
-      }
-    },
+    refreshModelCatalog: async () => modelCatalogCoordinator.refreshModelCatalog(),
+    prepareSettings: async () => agentMentionProvider.loadAgents(),
+    dispose: () => modelCatalogCoordinator.dispose(),
   };
-
-  return services;
 }
 
 export const codexWorkspaceRegistration: ProviderWorkspaceRegistration<CodexWorkspaceServices> = {

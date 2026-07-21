@@ -152,6 +152,7 @@ function createMockDeps(overrides: Partial<InputControllerDeps> = {}): InputCont
       refreshActionButtons: jest.fn(),
       removeMessage: jest.fn(),
       updateLiveUserMessage: jest.fn(),
+      appendInterruptIndicator: jest.fn(),
     } as any,
     streamController: {
       showThinkingIndicator: jest.fn(),
@@ -1096,6 +1097,34 @@ describe('InputController - Message Queue', () => {
       expect(deps.conversationController.save).toHaveBeenCalledWith(true, undefined);
       expect((deps as any).mockAgentService.query).toHaveBeenCalled();
       expect(deps.state.isStreaming).toBe(false);
+    });
+
+    it('awaits provider turn preparation before encoding the first message', async () => {
+      const calls: string[] = [];
+      deps = createSendableDeps();
+      (deps as any).mockAgentService.prepareForTurn = jest.fn(async () => {
+        calls.push('prepareForTurn');
+      });
+      (deps as any).mockAgentService.prepareTurn = jest.fn().mockImplementation((request: any) => {
+        calls.push('prepareTurn');
+        return {
+          request,
+          persistedContent: request.text,
+          prompt: request.text,
+          isCompact: false,
+          mcpMentions: new Set(),
+        };
+      });
+      (deps as any).mockAgentService.query = jest.fn().mockImplementation(() => (
+        createMockStream([{ type: 'done' }])
+      ));
+      inputEl = deps.getInputEl() as ReturnType<typeof createMockInputEl>;
+      inputEl.value = '@server-a hello';
+      controller = new InputController(deps);
+
+      await controller.sendMessage();
+
+      expect(calls).toEqual(['prepareForTurn', 'prepareTurn']);
     });
 
     it('should persist replay-safe user content instead of transport-only prompt', async () => {
@@ -2175,7 +2204,7 @@ describe('InputController - Message Queue', () => {
   });
 
   describe('Stream interruption', () => {
-    it('should append interrupted text when cancelRequested is true', async () => {
+    it('should render an interruption indicator when cancelRequested is true', async () => {
       deps = createSendableDeps();
 
       ((deps as any).mockAgentService.query as jest.Mock).mockImplementation(() => {
@@ -2192,14 +2221,18 @@ describe('InputController - Message Queue', () => {
 
       await controller.sendMessage();
 
-      expect(deps.streamController.appendText).toHaveBeenCalledWith(
+      expect(deps.streamController.appendText).not.toHaveBeenCalledWith(
         expect.stringContaining('Interrupted')
       );
+      expect(deps.renderer.appendInterruptIndicator).toHaveBeenCalledWith(expect.anything());
+      expect(deps.state.messages.find(message => message.role === 'assistant')).toMatchObject({
+        isInterrupt: true,
+      });
       expect(deps.state.isStreaming).toBe(false);
       expect(deps.state.cancelRequested).toBe(false);
     });
 
-    it('should append interrupted text when cancelRequested is set after last stream chunk', async () => {
+    it('should render an interruption indicator when cancellation follows the last chunk', async () => {
       deps = createSendableDeps();
 
       ((deps as any).mockAgentService.query as jest.Mock).mockImplementation(() => {
@@ -2217,9 +2250,13 @@ describe('InputController - Message Queue', () => {
 
       await controller.sendMessage();
 
-      expect(deps.streamController.appendText).toHaveBeenCalledWith(
+      expect(deps.streamController.appendText).not.toHaveBeenCalledWith(
         expect.stringContaining('Interrupted')
       );
+      expect(deps.renderer.appendInterruptIndicator).toHaveBeenCalledWith(expect.anything());
+      expect(deps.state.messages.find(message => message.role === 'assistant')).toMatchObject({
+        isInterrupt: true,
+      });
       expect(deps.state.isStreaming).toBe(false);
       expect(deps.state.cancelRequested).toBe(false);
     });

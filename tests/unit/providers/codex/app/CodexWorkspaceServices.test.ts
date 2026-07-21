@@ -69,11 +69,15 @@ function createPlugin(
       },
     },
     saveSettings: jest.fn().mockResolvedValue(undefined),
+    refreshModelSelectors: jest.fn(),
     getResolvedProviderCliPath: jest.fn(),
     getActiveEnvironmentVariables: jest.fn().mockReturnValue(''),
     app: {
       vault: {
         adapter: { basePath: '/workspace' },
+      },
+      workspace: {
+        onLayoutReady: jest.fn(),
       },
     },
   };
@@ -92,7 +96,7 @@ describe('CodexWorkspaceServices', () => {
     jest.clearAllMocks();
   });
 
-  it('defers app-server catalog discovery until background work starts', async () => {
+  it('defers discovery during initialization and persists an explicitly refreshed catalog', async () => {
     const plugin = createPlugin(true);
     const sol = makeDiscoveredModel('gpt-5.6-sol');
     mockDiscoverModels.mockResolvedValue({ kind: 'completed', models: [sol] });
@@ -100,16 +104,17 @@ describe('CodexWorkspaceServices', () => {
     const services = await createCodexWorkspaceServices(plugin, {} as any, {} as any);
 
     expect(mockDiscoverModels).not.toHaveBeenCalled();
+    expect(plugin.saveSettings).not.toHaveBeenCalled();
 
-    await services.startBackgroundTasks?.();
+    await services.refreshModelCatalog!();
 
     expect(mockDiscoverModels).toHaveBeenCalledTimes(1);
     expect(getCodexProviderSettings(plugin.settings).discoveredModels).toEqual([sol]);
     expect(mockNormalizeAllModelVariants).toHaveBeenCalledWith(plugin.settings);
-    expect(plugin.saveSettings).not.toHaveBeenCalled();
+    expect(plugin.saveSettings).toHaveBeenCalledTimes(1);
   });
 
-  it('persists a selection normalization caused by background discovery', async () => {
+  it('persists a selection normalization caused by explicit discovery', async () => {
     const plugin = createPlugin(true);
     mockDiscoverModels.mockResolvedValue({
       kind: 'completed',
@@ -118,7 +123,7 @@ describe('CodexWorkspaceServices', () => {
     mockNormalizeAllModelVariants.mockReturnValueOnce(true);
 
     const services = await createCodexWorkspaceServices(plugin, {} as any, {} as any);
-    await services.startBackgroundTasks?.();
+    await services.refreshModelCatalog!();
 
     expect(plugin.saveSettings).toHaveBeenCalledTimes(1);
   });
@@ -126,31 +131,74 @@ describe('CodexWorkspaceServices', () => {
   it('does not start app-server for a disabled provider', async () => {
     const plugin = createPlugin(false);
 
-    const services = await createCodexWorkspaceServices(plugin, {} as any, {} as any);
-    await services.startBackgroundTasks?.();
+    await createCodexWorkspaceServices(plugin, {} as any, {} as any);
 
     expect(mockDiscoverModels).not.toHaveBeenCalled();
     expect(plugin.saveSettings).not.toHaveBeenCalled();
   });
 
-  it('deduplicates a manual refresh while background discovery is in flight', async () => {
-    let resolveDiscovery!: (value: unknown) => void;
-    mockDiscoverModels.mockReturnValue(new Promise((resolve) => {
-      resolveDiscovery = resolve;
-    }));
+  it('does not run deferred layout discovery after workspace disposal', async () => {
     const plugin = createPlugin(true);
-    const services = await createCodexWorkspaceServices(plugin, {} as any, {} as any);
-
-    const backgroundRefresh = services.startBackgroundTasks?.();
-    const manualRefresh = services.refreshModelCatalog!();
-
-    expect(mockDiscoverModels).toHaveBeenCalledTimes(1);
-
-    resolveDiscovery({
+    mockDiscoverModels.mockResolvedValue({
       kind: 'completed',
       models: [makeDiscoveredModel('gpt-5.6-sol')],
     });
-    await Promise.all([backgroundRefresh, manualRefresh]);
+    const services = await createCodexWorkspaceServices(plugin, {} as any, {} as any);
+    const layoutReadyCallback = plugin.app.workspace.onLayoutReady.mock.calls[0][0];
+
+    await services.dispose?.();
+    layoutReadyCallback();
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(mockDiscoverModels).not.toHaveBeenCalled();
+    expect(plugin.saveSettings).not.toHaveBeenCalled();
+    expect(plugin.refreshModelSelectors).not.toHaveBeenCalled();
+  });
+
+  it('refreshes model selectors when layout-ready discovery changes the catalog', async () => {
+    const plugin = createPlugin(true);
+    mockDiscoverModels.mockResolvedValue({
+      kind: 'completed',
+      models: [makeDiscoveredModel('gpt-5.6-sol')],
+    });
+    await createCodexWorkspaceServices(plugin, {} as any, {} as any);
+    const layoutReadyCallback = plugin.app.workspace.onLayoutReady.mock.calls[0][0];
+
+    layoutReadyCallback();
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(plugin.refreshModelSelectors).toHaveBeenCalledTimes(1);
+  });
+
+  it('refreshes model selectors when stale layout-ready discovery changes in the background', async () => {
+    const cached = makeDiscoveredModel('gpt-5.5');
+    const refreshed = makeDiscoveredModel('gpt-5.6-sol');
+    const plugin = createPlugin(true, [cached]);
+    mockDiscoverModels.mockResolvedValueOnce({ kind: 'completed', models: [cached] });
+    const services = await createCodexWorkspaceServices(plugin, {} as any, {} as any);
+    await services.refreshModelCatalog!();
+    plugin.settings.providerConfigs.codex.catalogTimestamp = 1;
+    mockDiscoverModels.mockResolvedValueOnce({ kind: 'completed', models: [refreshed] });
+    const layoutReadyCallback = plugin.app.workspace.onLayoutReady.mock.calls[0][0];
+
+    layoutReadyCallback();
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(mockDiscoverModels).toHaveBeenCalledTimes(2);
+    expect(plugin.refreshModelSelectors).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not refresh model selectors when layout-ready discovery leaves the catalog unchanged', async () => {
+    const cached = makeDiscoveredModel('gpt-5.6-sol');
+    const plugin = createPlugin(true, [cached]);
+    mockDiscoverModels.mockResolvedValue({ kind: 'completed', models: [cached] });
+    await createCodexWorkspaceServices(plugin, {} as any, {} as any);
+    const layoutReadyCallback = plugin.app.workspace.onLayoutReady.mock.calls[0][0];
+
+    layoutReadyCallback();
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(plugin.refreshModelSelectors).not.toHaveBeenCalled();
   });
 
   it('treats a disabled catalog refresh as skipped without diagnostics', async () => {

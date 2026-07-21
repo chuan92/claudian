@@ -17,6 +17,8 @@ import { extractUserDisplayContent } from '../../../utils/context';
 import { formatDurationMmSs } from '../../../utils/date';
 import { processFileLinks, registerFileLinkHandler } from '../../../utils/fileLink';
 import { replaceImageEmbedsWithHtml } from '../../../utils/imageEmbed';
+import { stripLegacyInterruptIndicator } from '../../../utils/interrupt';
+import { escapeRawHtmlTags } from '../../../utils/markdownHtml';
 import {
   escapeMathDelimitersForStreaming,
   normalizeLatexMathDelimiters,
@@ -31,6 +33,7 @@ import {
 } from './SubagentRenderer';
 import { renderStoredThinkingBlock } from './ThinkingBlockRenderer';
 import { renderStoredToolCall } from './ToolCallRenderer';
+import { createWelcomeElement } from './Welcome';
 import { renderStoredWriteEdit } from './WriteEditRenderer';
 
 export interface RenderContentOptions {
@@ -235,8 +238,7 @@ export class MessageRenderer {
     this.liveMessageEls.clear();
 
     // Recreate welcome element after clearing
-    const newWelcomeEl = this.messagesEl.createDiv({ cls: 'claudian-welcome' });
-    newWelcomeEl.createDiv({ cls: 'claudian-welcome-greeting', text: getGreeting() });
+    const newWelcomeEl = createWelcomeElement(this.messagesEl, getGreeting());
 
     for (let i = 0; i < messages.length; i++) {
       this.renderStoredMessage(messages[i], messages, i);
@@ -304,8 +306,8 @@ export class MessageRenderer {
         }
       }
     } else if (msg.role === 'assistant') {
-      this.renderAssistantContent(msg, contentEl);
-      if (msg.isInterrupt) {
+      const hadLegacyInterruptIndicator = this.renderAssistantContent(msg, contentEl);
+      if (msg.isInterrupt || hadLegacyInterruptIndicator) {
         this.appendInterruptIndicator(contentEl);
       }
     }
@@ -347,7 +349,7 @@ export class MessageRenderer {
     this.appendInterruptIndicator(contentEl);
   }
 
-  private appendInterruptIndicator(contentEl: HTMLElement): void {
+  appendInterruptIndicator(contentEl: HTMLElement): void {
     const textEl = contentEl.createDiv({ cls: 'claudian-text-block' });
     textEl.createSpan({ cls: 'claudian-interrupted', text: 'Interrupted' });
     textEl.appendText(' ');
@@ -360,7 +362,9 @@ export class MessageRenderer {
   /**
    * Renders assistant message content (content blocks or fallback).
    */
-  private renderAssistantContent(msg: ChatMessage, contentEl: HTMLElement): void {
+  private renderAssistantContent(msg: ChatMessage, contentEl: HTMLElement): boolean {
+    let hadLegacyInterruptIndicator = false;
+
     if (msg.contentBlocks && msg.contentBlocks.length > 0) {
       const renderedToolIds = new Set<string>();
       for (const block of msg.contentBlocks) {
@@ -372,13 +376,15 @@ export class MessageRenderer {
             (el, md) => this.renderContent(el, md)
           );
         } else if (block.type === 'text') {
+          const normalized = stripLegacyInterruptIndicator(block.content);
+          hadLegacyInterruptIndicator ||= normalized.interrupted;
           // Skip empty or whitespace-only text blocks to avoid extra gaps
-          if (!block.content || !block.content.trim()) {
+          if (!normalized.content.trim()) {
             continue;
           }
           const textEl = contentEl.createDiv({ cls: 'claudian-text-block' });
-          void this.renderContent(textEl, block.content);
-          this.addTextCopyButton(textEl, block.content);
+          void this.renderContent(textEl, normalized.content);
+          this.addTextCopyButton(textEl, normalized.content);
         } else if (block.type === 'tool_use') {
           const toolCall = msg.toolCalls?.find(tc => tc.id === block.toolId);
           if (toolCall) {
@@ -410,9 +416,13 @@ export class MessageRenderer {
     } else {
       // Fallback for old conversations without contentBlocks
       if (msg.content) {
-        const textEl = contentEl.createDiv({ cls: 'claudian-text-block' });
-        void this.renderContent(textEl, msg.content);
-        this.addTextCopyButton(textEl, msg.content);
+        const normalized = stripLegacyInterruptIndicator(msg.content);
+        hadLegacyInterruptIndicator ||= normalized.interrupted;
+        if (normalized.content.trim()) {
+          const textEl = contentEl.createDiv({ cls: 'claudian-text-block' });
+          void this.renderContent(textEl, normalized.content);
+          this.addTextCopyButton(textEl, normalized.content);
+        }
       }
       if (msg.toolCalls) {
         for (const toolCall of msg.toolCalls) {
@@ -431,6 +441,8 @@ export class MessageRenderer {
         cls: 'claudian-baked-duration',
       });
     }
+
+    return hadLegacyInterruptIndicator;
   }
 
   /**
@@ -672,9 +684,12 @@ export class MessageRenderer {
       const renderMarkdown = options?.deferMath
         ? escapeMathDelimitersForStreaming(normalizedMarkdown)
         : normalizedMarkdown;
-      // Normalize embeds before MarkdownRenderer consumes them.
+      // Escape user-authored HTML first so placeholders like <meta-name> render
+      // as plain text. Trusted plugin markup (image embeds) is injected only
+      // after this step, otherwise it would be escaped too.
+      const safeMarkdown = escapeRawHtmlTags(renderMarkdown);
       const processedMarkdown = replaceImageEmbedsWithHtml(
-        renderMarkdown,
+        safeMarkdown,
         this.app,
         { mediaFolder: this.plugin.settings.mediaFolder }
       );
@@ -692,7 +707,7 @@ export class MessageRenderer {
         if (pre.parentElement?.classList.contains('claudian-code-wrapper')) return;
 
         // Create wrapper
-        const wrapper = createEl('div', { cls: 'claudian-code-wrapper' });
+        const wrapper = createDiv({ cls: 'claudian-code-wrapper' });
         pre.parentElement?.insertBefore(wrapper, pre);
         wrapper.appendChild(pre);
 
@@ -702,7 +717,7 @@ export class MessageRenderer {
           const match = code.className.match(/language-(\w+)/);
           if (match) {
             wrapper.classList.add('has-language');
-            const label = createEl('span', {
+            const label = createSpan({
               cls: 'claudian-code-lang-label',
               text: match[1],
             });

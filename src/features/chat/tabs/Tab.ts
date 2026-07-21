@@ -40,6 +40,7 @@ import { SelectionController } from '../controllers/SelectionController';
 import { StreamController } from '../controllers/StreamController';
 import { MessageRenderer } from '../rendering/MessageRenderer';
 import { cleanupThinkingBlock } from '../rendering/ThinkingBlockRenderer';
+import { createWelcomeElement } from '../rendering/Welcome';
 import { findRewindContext } from '../rewind';
 import { BangBashService } from '../services/BangBashService';
 import { SubagentManager } from '../services/SubagentManager';
@@ -411,6 +412,13 @@ function applyProviderUIGating(tab: TabData, plugin: FeatureHost): void {
   tab.ui.contextUsageMeter?.update(tab.state.usage);
 }
 
+export function refreshTabWorkspaceServices(tab: TabData, plugin: FeatureHost): void {
+  const providerId = getTabProviderId(tab, plugin);
+  tab.ui.mcpServerSelector?.setMcpManager(getProviderMcpManager(providerId));
+  syncSlashCommandDropdownForProvider(tab, plugin);
+  applyProviderUIGating(tab, plugin);
+}
+
 function syncTabProviderServices(
   tab: TabData,
   plugin: FeatureHost,
@@ -554,6 +562,7 @@ export function createTab(options: TabCreateOptions): TabData {
     set lifecycleState(value) {
       session.lifecycleState = value;
     },
+    hydrationState: isBound ? 'idle' : 'ready',
     get draftModel() {
       return session.draftModel;
     },
@@ -627,7 +636,7 @@ export function createTab(options: TabCreateOptions): TabData {
 function buildTabDOM(contentEl: HTMLElement): TabDOMElements {
   const messagesWrapperEl = contentEl.createDiv({ cls: 'claudian-messages-wrapper' });
   const messagesEl = messagesWrapperEl.createDiv({ cls: 'claudian-messages' });
-  const welcomeEl = messagesEl.createDiv({ cls: 'claudian-welcome' });
+  const welcomeEl = createWelcomeElement(messagesEl);
   const statusPanelContainerEl = contentEl.createDiv({ cls: 'claudian-status-panel-container' });
   const inputComposerEl = contentEl.createDiv({ cls: 'claudian-input-composer' });
   const inputContainerEl = inputComposerEl.createDiv({ cls: 'claudian-input-container' });
@@ -638,7 +647,7 @@ function buildTabDOM(contentEl: HTMLElement): TabDOMElements {
   const inputEl = inputWrapper.createEl('textarea', {
     cls: 'claudian-input',
     attr: {
-      placeholder: 'How can i help you today?',
+      placeholder: 'Ask to make changes, @mention files,  run /commands',
       rows: '3',
       dir: 'auto',
     },
@@ -700,7 +709,15 @@ export async function initializeTabService(
       ? await plugin.getConversationById(tab.conversationId)
       : null
   );
+  if (isClosingLifecycleState(tab.lifecycleState)) {
+    return;
+  }
   const providerId = getTabProviderId(tab, plugin, conversation);
+  await ProviderWorkspaceRegistry.ensureInitialized(plugin.providerHost, providerId, 'tab-runtime');
+  if (isClosingLifecycleState(tab.lifecycleState)) {
+    return;
+  }
+  refreshTabWorkspaceServices(tab, plugin);
   const selectedModel = conversation
     ? resolveConversationModel(plugin.settings, providerId, conversation).model
     : getTabSelectedModel(tab, plugin);
@@ -1053,6 +1070,8 @@ function initializeInputToolbar(
       );
     },
   });
+
+  dom.eventCleanups.push(() => toolbarComponents.layoutController.destroy());
 
   tab.ui.modelSelector = toolbarComponents.modelSelector;
   tab.ui.modeSelector = toolbarComponents.modeSelector;
@@ -1449,6 +1468,7 @@ export function initializeTabControllers(
       getSelectedModel: () => getTabSelectedModel(tab, plugin),
       dismissPendingInlinePrompts: () => tab.controllers.inputController?.dismissPendingApproval(),
       awaitBackgroundWork: () => tab.session.awaitBackgroundWork(),
+      isDisposed: () => tab.lifecycleState === 'closing',
       ensureServiceForConversation: async (conversation) => {
         const nextProviderId = getTabProviderId(tab, plugin, conversation);
         const providerChanged = tab.providerId !== nextProviderId;
@@ -1547,6 +1567,9 @@ export function initializeTabControllers(
         }
 
         await initializeTabService(tab, plugin);
+        if (isClosingLifecycleState(tab.lifecycleState)) {
+          return false;
+        }
         setupServiceCallbacks(tab, plugin);
 
         // Transition: lock model selector to bound provider

@@ -17,6 +17,11 @@ import type {
   UsageInfo,
 } from '../../../core/types';
 import { appendCheckIcon, appendMcpIcon, createProviderIconSvg } from '../../../shared/icons';
+import {
+  cancelScheduledAnimationFrame,
+  scheduleAnimationFrame,
+  type ScheduledAnimationFrame,
+} from '../../../utils/animationFrame';
 import { filterValidPaths, findConflictingPath, isDuplicatePath, isValidDirectoryPath, validateDirectoryPath } from '../../../utils/externalContext';
 import { expandHomePath, normalizePathForFilesystem } from '../../../utils/path';
 
@@ -96,9 +101,19 @@ export class ModelSelector {
     const modelInfo = models.find(m => m.value === currentModel);
 
     const displayModel = modelInfo || models[0];
+    const icon = displayModel?.providerIcon
+      ?? this.callbacks.getUIConfig().getProviderIcon?.();
 
     this.buttonEl.empty();
 
+    if (icon) {
+      createProviderIconSvg(icon, {
+        className: 'claudian-model-provider-icon',
+        height: 12,
+        parent: this.buttonEl,
+        width: 12,
+      });
+    }
     const labelEl = this.buttonEl.createSpan({ cls: 'claudian-model-label' });
     labelEl.setText(displayModel?.label || 'Unknown');
   }
@@ -126,12 +141,12 @@ export class ModelSelector {
 
       const icon = model.providerIcon ?? this.callbacks.getUIConfig().getProviderIcon?.();
       if (icon) {
-        option.appendChild(createProviderIconSvg(icon, {
+        createProviderIconSvg(icon, {
           className: 'claudian-model-provider-icon',
           height: 12,
-          ownerDocument: option.ownerDocument,
+          parent: option,
           width: 12,
-        }));
+        });
       }
       option.createSpan({ text: model.label });
       if (model.description) {
@@ -914,6 +929,7 @@ export class McpServerSelector {
     this.pruneEnabledServers();
     this.updateDisplay();
     this.renderDropdown();
+    this.ensureManagerLoaded(manager);
   }
 
   setOnChange(callback: (enabled: Set<string>) => void): void {
@@ -953,6 +969,7 @@ export class McpServerSelector {
 
   private pruneEnabledServers(): void {
     if (!this.mcpManager) return;
+    if (this.mcpManager.isLoaded?.() === false) return;
     const activeNames = new Set(this.mcpManager.getServers().filter((s) => s.enabled).map((s) => s.name));
     let changed = false;
     for (const name of this.enabledServers) {
@@ -964,6 +981,21 @@ export class McpServerSelector {
     if (changed) {
       this.onChangeCallback?.(this.enabledServers);
     }
+  }
+
+  private ensureManagerLoaded(manager: McpServerManager | null): void {
+    if (!manager || manager.isLoaded?.() !== false) return;
+
+    const load = manager.ensureLoaded?.();
+    if (load === undefined) return;
+
+    void load.then(() => {
+      if (this.mcpManager !== manager) return;
+      this.updateDisplay();
+      this.renderDropdown();
+    }).catch(() => {
+      // Keep the selector hidden when its configuration cannot be loaded.
+    });
   }
 
   private render() {
@@ -983,7 +1015,17 @@ export class McpServerSelector {
 
     // Re-render dropdown content on hover (CSS handles visibility)
     this.container.addEventListener('mouseenter', () => {
-      this.renderDropdown();
+      const load = this.mcpManager?.ensureLoaded?.();
+      if (load) {
+        void load.then(() => {
+          this.updateDisplay();
+          this.renderDropdown();
+        }).catch(() => {
+          // Keep the selector usable with its last known state when config loading fails.
+        });
+      } else {
+        this.renderDropdown();
+      }
     });
   }
 
@@ -1113,6 +1155,10 @@ export class ContextUsageMeter {
 
   constructor(parentEl: HTMLElement) {
     this.container = parentEl.createDiv({ cls: 'claudian-context-meter' });
+    this.container.setAttribute('role', 'progressbar');
+    this.container.setAttribute('aria-label', 'Context usage');
+    this.container.setAttribute('aria-valuemin', '0');
+    this.container.setAttribute('aria-valuemax', '100');
     this.render();
     // Initially hidden
     this.container.addClass('claudian-hidden');
@@ -1144,20 +1190,20 @@ export class ContextUsageMeter {
     const y2 = cy + radius * Math.sin(endRad);
 
     const gaugeEl = this.container.createDiv({ cls: 'claudian-context-meter-gauge' });
-    const svg = gaugeEl.ownerDocument.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const svg = gaugeEl.createSvg('svg');
     svg.setAttribute('width', String(size));
     svg.setAttribute('height', String(size));
     svg.setAttribute('viewBox', `0 0 ${size} ${size}`);
 
     const pathData = `M ${x1} ${y1} A ${radius} ${radius} 0 1 1 ${x2} ${y2}`;
-    const backgroundPath = gaugeEl.ownerDocument.createElementNS('http://www.w3.org/2000/svg', 'path');
+    const backgroundPath = svg.createSvg('path');
     backgroundPath.classList.add('claudian-meter-bg');
     backgroundPath.setAttribute('d', pathData);
     backgroundPath.setAttribute('fill', 'none');
     backgroundPath.setAttribute('stroke-width', String(strokeWidth));
     backgroundPath.setAttribute('stroke-linecap', 'round');
 
-    const fillPath = gaugeEl.ownerDocument.createElementNS('http://www.w3.org/2000/svg', 'path');
+    const fillPath = svg.createSvg('path');
     fillPath.classList.add('claudian-meter-fill');
     fillPath.setAttribute('d', pathData);
     fillPath.setAttribute('fill', 'none');
@@ -1202,6 +1248,11 @@ export class ContextUsageMeter {
       tooltip += ' (Approaching limit, run `/compact` to continue)';
     }
     this.container.setAttribute('data-tooltip', tooltip);
+    this.container.setAttribute('aria-valuenow', String(usage.percentage));
+    this.container.setAttribute(
+      'aria-valuetext',
+      `${this.formatTokens(usage.contextTokens)} / ${this.formatTokens(usage.contextWindow)}`,
+    );
   }
 
   private formatTokens(tokens: number): string {
@@ -1209,6 +1260,88 @@ export class ContextUsageMeter {
       return `${Math.round(tokens / 1000)}k`;
     }
     return String(tokens);
+  }
+}
+
+const TOOLBAR_COMPACT_CLASS = 'claudian-input-toolbar--compact';
+const ROW_CENTER_TOLERANCE = 1;
+
+/** Hides optional labels only when the full toolbar would wrap. */
+export class InputToolbarLayoutController {
+  private resizeObserver: ResizeObserver | null = null;
+  private mutationObserver: MutationObserver | null = null;
+  private pendingLayout: ScheduledAnimationFrame | null = null;
+
+  constructor(private readonly toolbarEl: HTMLElement) {
+    this.observeLayoutChanges();
+    this.scheduleLayout();
+  }
+
+  refreshLayout(): void {
+    this.toolbarEl.classList.remove(TOOLBAR_COMPACT_CLASS);
+    this.toolbarEl.classList.toggle(TOOLBAR_COMPACT_CLASS, this.hasWrappedItems());
+  }
+
+  destroy(): void {
+    if (this.pendingLayout !== null) {
+      cancelScheduledAnimationFrame(this.pendingLayout);
+      this.pendingLayout = null;
+    }
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = null;
+    this.mutationObserver?.disconnect();
+    this.mutationObserver = null;
+  }
+
+  private hasWrappedItems(): boolean {
+    const rowCenters = Array.from(this.toolbarEl.children)
+      .map((item) => item.getBoundingClientRect())
+      .filter((rect) => rect.width > 0 && rect.height > 0)
+      .map((rect) => rect.top + rect.height / 2);
+    const firstRowCenter = rowCenters[0];
+    if (firstRowCenter === undefined) return false;
+
+    return rowCenters.some((center) => Math.abs(center - firstRowCenter) > ROW_CENTER_TOLERANCE);
+  }
+
+  private scheduleLayout(): void {
+    if (this.pendingLayout !== null) {
+      cancelScheduledAnimationFrame(this.pendingLayout);
+    }
+    this.pendingLayout = scheduleAnimationFrame(() => {
+      this.pendingLayout = null;
+      this.refreshLayout();
+    }, this.toolbarEl.ownerDocument.defaultView);
+  }
+
+  private observeLayoutChanges(): void {
+    const ownerWindow = this.toolbarEl.ownerDocument.defaultView;
+    const ResizeObserverConstructor = ownerWindow?.ResizeObserver;
+    if (typeof ResizeObserverConstructor === 'function') {
+      this.resizeObserver = new ResizeObserverConstructor(() => this.scheduleLayout());
+      this.resizeObserver.observe(this.toolbarEl);
+    }
+
+    const MutationObserverConstructor = ownerWindow?.MutationObserver;
+    if (typeof MutationObserverConstructor !== 'function') return;
+
+    this.mutationObserver = new MutationObserverConstructor((mutations) => {
+      const hasContentChange = mutations.some((mutation) => (
+        mutation.type !== 'attributes'
+        || mutation.target !== this.toolbarEl
+        || mutation.attributeName !== 'class'
+      ));
+      if (hasContentChange) {
+        this.scheduleLayout();
+      }
+    });
+    this.mutationObserver.observe(this.toolbarEl, {
+      attributes: true,
+      attributeFilter: ['class'],
+      characterData: true,
+      childList: true,
+      subtree: true,
+    });
   }
 }
 
@@ -1220,6 +1353,7 @@ export function createInputToolbar(
   modeSelector: ModeSelector;
   thinkingBudgetSelector: ThinkingBudgetSelector;
   contextUsageMeter: ContextUsageMeter | null;
+  layoutController: InputToolbarLayoutController;
   externalContextSelector: ExternalContextSelector;
   mcpServerSelector: McpServerSelector;
   permissionToggle: PermissionToggle;
@@ -1233,6 +1367,7 @@ export function createInputToolbar(
   const mcpServerSelector = new McpServerSelector(parentEl);
   const permissionToggle = new PermissionToggle(parentEl, callbacks);
   const modeSelector = new ModeSelector(parentEl, callbacks);
+  const layoutController = new InputToolbarLayoutController(parentEl);
 
   return {
     modelSelector,
@@ -1240,6 +1375,7 @@ export function createInputToolbar(
     thinkingBudgetSelector,
     serviceTierToggle,
     contextUsageMeter,
+    layoutController,
     externalContextSelector,
     mcpServerSelector,
     permissionToggle,

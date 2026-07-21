@@ -115,7 +115,9 @@ describe('MessageRenderer', () => {
     expect(emptySpy).toHaveBeenCalled();
     expect(renderStoredSpy).toHaveBeenCalledTimes(1);
     expect(welcomeEl.hasClass('claudian-welcome')).toBe(true);
-    expect(welcomeEl.children[0].textContent).toBe('Hello');
+    expect(welcomeEl.children[0].hasClass('claudian-welcome-brand')).toBe(true);
+    expect(welcomeEl.children[0].textContent).toBe('Claudian');
+    expect(welcomeEl.children[1].textContent).toBe('Hello');
   });
 
   it('renders empty messages list with just welcome element', () => {
@@ -185,6 +187,34 @@ describe('MessageRenderer', () => {
     const interruptedEl = lastChild.children[0];
     expect(interruptedEl.hasClass('claudian-interrupted')).toBe(true);
     expect(interruptedEl.textContent).toBe('Interrupted');
+  });
+
+  it('upgrades a persisted legacy interruption marker to the typed indicator', async () => {
+    const { MarkdownRenderer } = await import('obsidian');
+    const messagesEl = createMockEl();
+    const { renderer } = createRenderer(messagesEl);
+    const legacyMarker =
+      '<span class="claudian-interrupted">Interrupted</span> <span class="claudian-interrupted-hint">· What should Claudian do instead?</span>';
+    const interruptMsg: ChatMessage = {
+      id: 'interrupt-legacy-1',
+      role: 'assistant',
+      content: 'Partial response',
+      timestamp: Date.now(),
+      contentBlocks: [{ type: 'text', content: `Partial response\n\n${legacyMarker}` }],
+    };
+
+    renderer.renderStoredMessage(interruptMsg);
+
+    expect(MarkdownRenderer.renderMarkdown).toHaveBeenCalledWith(
+      'Partial response',
+      expect.anything(),
+      '',
+      expect.anything()
+    );
+    const contentEl = messagesEl.children[0].children[0];
+    const indicatorEl = contentEl.children[contentEl.children.length - 1];
+    expect(indicatorEl.children[0].hasClass('claudian-interrupted')).toBe(true);
+    expect(indicatorEl.children[0].textContent).toBe('Interrupted');
   });
 
   it('renders bare interrupt marker for empty interrupted assistant message', () => {
@@ -1366,6 +1396,31 @@ describe('MessageRenderer', () => {
 
     expect(MarkdownRenderer.renderMarkdown).toHaveBeenCalledWith(
       'Inline $x<y$.\n$$y^2$$',
+      el,
+      '',
+      expect.anything()
+    );
+  });
+
+  it('renderContent escapes placeholder-style HTML before rendering', async () => {
+    const { MarkdownRenderer } = await import('obsidian');
+    const { replaceImageEmbedsWithHtml } = await import('@/utils/imageEmbed');
+    const { renderer } = createRenderer();
+    const el = createMockEl();
+    const markdown =
+      'Use areas/<meta-name> and projects/<meta-name>/<name>.';
+    const escapedMarkdown =
+      'Use areas/&lt;meta-name&gt; and projects/&lt;meta-name&gt;/&lt;name&gt;.';
+
+    await renderer.renderContent(el, markdown);
+
+    expect(replaceImageEmbedsWithHtml).toHaveBeenCalledWith(
+      escapedMarkdown,
+      expect.anything(),
+      { mediaFolder: '' }
+    );
+    expect(MarkdownRenderer.renderMarkdown).toHaveBeenCalledWith(
+      escapedMarkdown,
       el,
       '',
       expect.anything()

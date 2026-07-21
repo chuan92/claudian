@@ -21,6 +21,7 @@ import type {
   CollabAgentToolCallItem,
   CommandExecutionItem,
   ContextCompactionItem,
+  DynamicToolCallItem,
   ErrorNotification,
   FileChangeItem,
   FileChangePatchUpdatedNotification,
@@ -87,6 +88,7 @@ export class CodexNotificationRouter {
   private rawToolInputsByCallId = new Map<string, Record<string, unknown>>();
   private rawToolOutputsByCallId = new Map<string, RawToolResult>();
   private immediateRawOutputCallIds = new Set<string>();
+  private emittedImmediateToolResultIds = new Set<string>();
   private wrappedCommandCallIdsByCellId = new Map<string, string>();
   private wrappedCommandOutputByCallId = new Map<string, string>();
   private wrappedWaitCallsByCallId = new Map<string, WrappedWaitCall>();
@@ -160,6 +162,7 @@ export class CodexNotificationRouter {
     this.rawToolInputsByCallId.clear();
     this.rawToolOutputsByCallId.clear();
     this.immediateRawOutputCallIds.clear();
+    this.emittedImmediateToolResultIds.clear();
     this.wrappedCommandCallIdsByCellId.clear();
     this.wrappedCommandOutputByCallId.clear();
     this.wrappedWaitCallsByCallId.clear();
@@ -184,6 +187,7 @@ export class CodexNotificationRouter {
     this.rawToolInputsByCallId.clear();
     this.rawToolOutputsByCallId.clear();
     this.immediateRawOutputCallIds.clear();
+    this.emittedImmediateToolResultIds.clear();
     this.wrappedCommandCallIdsByCellId.clear();
     this.wrappedCommandOutputByCallId.clear();
     this.wrappedWaitCallsByCallId.clear();
@@ -318,6 +322,10 @@ export class CodexNotificationRouter {
         this.emitToolUseFromMcp(item);
         break;
 
+      case 'dynamicToolCall':
+        this.emitToolUseFromDynamic(item);
+        break;
+
       default:
         break;
     }
@@ -371,6 +379,10 @@ export class CodexNotificationRouter {
 
       case 'mcpToolCall':
         this.emitToolResultFromMcp(item);
+        break;
+
+      case 'dynamicToolCall':
+        this.emitToolResultFromDynamic(item);
         break;
 
       case 'contextCompaction':
@@ -481,7 +493,7 @@ export class CodexNotificationRouter {
       }
     }
 
-    // Generic custom tools have no semantic item/completed notification; their raw output is terminal.
+    // Raw custom output is terminal unless a canonical dynamic-tool completion also arrives.
     this.immediateRawOutputCallIds.add(callId);
     this.emitRawToolUse(callId, rawName, item);
   }
@@ -601,7 +613,10 @@ export class CodexNotificationRouter {
         return;
       }
 
-      this.emit({ type: 'tool_result', id: callId, ...result });
+      if (!this.emittedImmediateToolResultIds.has(callId)) {
+        this.emittedImmediateToolResultIds.add(callId);
+        this.emit({ type: 'tool_result', id: callId, ...result });
+      }
       return;
     }
 
@@ -1042,6 +1057,35 @@ export class CodexNotificationRouter {
       id: item.id,
       content,
       isError: item.status === 'failed' || item.status === 'error',
+    });
+  }
+
+  // -- dynamicToolCall --------------------------------------------------------
+
+  private emitToolUseFromDynamic(item: DynamicToolCallItem): void {
+    this.emitRawToolUse(
+      item.id,
+      item.tool,
+      {},
+      asRecord(item.arguments) ?? {},
+    );
+  }
+
+  private emitToolResultFromDynamic(item: DynamicToolCallItem): void {
+    if (this.emittedImmediateToolResultIds.has(item.id)) return;
+    this.emittedImmediateToolResultIds.add(item.id);
+
+    const content = (item.contentItems ?? [])
+      .map(contentItem => contentItem.type === 'inputText'
+        ? contentItem.text
+        : contentItem.imageUrl)
+      .filter(Boolean)
+      .join('\n');
+    this.emit({
+      type: 'tool_result',
+      id: item.id,
+      content: content || (item.success === false ? 'Failed' : 'Completed'),
+      isError: item.success === false || item.status === 'failed',
     });
   }
 

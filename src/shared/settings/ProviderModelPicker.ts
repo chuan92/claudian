@@ -22,7 +22,12 @@ export interface ProviderModelPickerState {
   selectedIds: string[];
 }
 
+export interface ProviderModelPickerController {
+  refresh(): void;
+}
+
 export interface ProviderModelPickerOptions {
+  checkCatalogFreshnessWhenCached?: boolean;
   container: HTMLElement;
   emptyCatalogText: string;
   failedCatalogText: string;
@@ -40,7 +45,9 @@ export interface ProviderModelPickerOptions {
   settingDescription: string;
 }
 
-export function renderProviderModelPicker(options: ProviderModelPickerOptions): void {
+export function renderProviderModelPicker(
+  options: ProviderModelPickerOptions,
+): ProviderModelPickerController {
   new Setting(options.container)
     .setName('Visible models')
     .setDesc(options.settingDescription);
@@ -167,7 +174,7 @@ export function renderProviderModelPicker(options: ProviderModelPickerOptions): 
     selectedEl.toggleClass('claudian-hidden', false);
     const modelsById = new Map(state.models.map(model => [model.id, model] as const));
     const headerEl = selectedEl.createDiv({ cls: 'claudian-provider-model-picker-selected-header' });
-    headerEl.createEl('span', {
+    headerEl.createSpan({
       cls: 'claudian-provider-model-picker-selected-label',
       text: `Selected (${state.selectedIds.length})`,
     });
@@ -198,22 +205,22 @@ export function renderProviderModelPicker(options: ProviderModelPickerOptions): 
       const infoEl = rowEl.createDiv({ cls: 'claudian-provider-model-picker-selected-info' });
       const titleEl = infoEl.createDiv({ cls: 'claudian-provider-model-picker-selected-title' });
       if (model.providerLabel) {
-        titleEl.createEl('span', {
+        titleEl.createSpan({
           cls: 'claudian-provider-model-picker-selected-badge',
           text: model.providerLabel,
         });
       }
-      titleEl.createEl('span', {
+      titleEl.createSpan({
         cls: 'claudian-provider-model-picker-selected-name',
         text: model.name,
       });
       if (model.isAvailable === false && model.unavailableMessage) {
-        infoEl.createEl('div', {
+        infoEl.createDiv({
           cls: 'claudian-provider-model-picker-selected-unavailable',
           text: model.unavailableMessage,
         });
       }
-      infoEl.createEl('div', {
+      infoEl.createDiv({
         cls: 'claudian-provider-model-picker-selected-id',
         text: model.id,
       });
@@ -352,7 +359,7 @@ export function renderProviderModelPicker(options: ProviderModelPickerOptions): 
 
       const textEl = rowEl.createDiv({ cls: 'claudian-provider-model-picker-row-text' });
       const headerEl = textEl.createDiv({ cls: 'claudian-provider-model-picker-row-header' });
-      headerEl.createEl('span', {
+      headerEl.createSpan({
         cls: 'claudian-provider-model-picker-row-name',
         text: model.name,
       });
@@ -360,7 +367,7 @@ export function renderProviderModelPicker(options: ProviderModelPickerOptions): 
         ? 'Unavailable'
         : model.catalogBadge ?? model.providerLabel;
       if (badgeLabel) {
-        const badgeEl = headerEl.createEl('span', {
+        const badgeEl = headerEl.createSpan({
           cls: 'claudian-provider-model-picker-row-badge',
           text: badgeLabel,
         });
@@ -390,7 +397,14 @@ export function renderProviderModelPicker(options: ProviderModelPickerOptions): 
   };
 
   const loadCatalog = async (force: boolean): Promise<void> => {
-    if (loadingCatalog || (!force && options.getState().discoveredCount > 0)) {
+    if (
+      loadingCatalog
+      || (
+        !force
+        && !options.checkCatalogFreshnessWhenCached
+        && options.getState().discoveredCount > 0
+      )
+    ) {
       return;
     }
 
@@ -416,4 +430,5 @@ export function renderProviderModelPicker(options: ProviderModelPickerOptions): 
   if (options.loadCatalogOnRender) {
     void loadCatalog(false);
   }
+  return { refresh: renderAll };
 }
