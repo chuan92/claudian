@@ -738,6 +738,35 @@ export function stringifyCodexToolOutput(value: unknown): string {
   }
 }
 
+export function splitCodexExecEnvelopeOutput(
+  rawOutputValue: unknown,
+  toolCallCount: number,
+): Array<string | unknown[]> | null {
+  if (!Array.isArray(rawOutputValue)) return null;
+
+  const outputParts: Array<string | unknown[]> = [];
+  for (const part of rawOutputValue) {
+    if (!part || typeof part !== 'object' || Array.isArray(part)) return null;
+    const text = (part as Record<string, unknown>).text;
+    outputParts.push(typeof text === 'string' ? text : [part]);
+  }
+
+  // The exec transport prepends its own completion header before nested outputs.
+  if (
+    outputParts.length === toolCallCount + 1
+    && typeof outputParts[0] === 'string'
+    && isCodexExecEnvelopeHeader(outputParts[0])
+  ) {
+    return outputParts.slice(1);
+  }
+
+  return outputParts.length === toolCallCount ? outputParts : null;
+}
+
+function isCodexExecEnvelopeHeader(value: string): boolean {
+  return value.startsWith('Script ') && value.endsWith('Output:\n');
+}
+
 export function extractCodexExecCellId(output: string): string | undefined {
   const match = output.trimStart().match(/^Script running with cell ID\s+([^\n]+)/i);
   return match?.[1]?.trim() || undefined;

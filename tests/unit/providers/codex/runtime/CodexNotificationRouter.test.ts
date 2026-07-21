@@ -472,6 +472,395 @@ describe('CodexNotificationRouter', () => {
       ]);
     });
 
+    it('does not duplicate a wrapped image view represented by a semantic image item', () => {
+      router.beginTurn({ isPlanTurn: false });
+
+      router.handleNotification('rawResponseItem/completed', {
+        threadId: 't1',
+        turnId: 'turn1',
+        item: {
+          type: 'custom_tool_call',
+          name: 'exec',
+          call_id: 'call_image_wrapper',
+          input: [
+            'const r = await tools.view_image({path:"tmp/pages/p004_fig1.png",detail:"original"});',
+            'image(r.image_url);',
+          ].join('\n'),
+        },
+      });
+      router.handleNotification('item/started', {
+        threadId: 't1',
+        turnId: 'turn1',
+        item: {
+          type: 'imageView',
+          id: 'semantic_image_1',
+          path: '/vault/tmp/pages/p004_fig1.png',
+        },
+      });
+      router.handleNotification('item/completed', {
+        threadId: 't1',
+        turnId: 'turn1',
+        item: {
+          type: 'imageView',
+          id: 'semantic_image_1',
+          path: '/vault/tmp/pages/p004_fig1.png',
+        },
+      });
+      router.handleNotification('rawResponseItem/completed', {
+        threadId: 't1',
+        turnId: 'turn1',
+        item: {
+          type: 'custom_tool_call_output',
+          call_id: 'call_image_wrapper',
+          output: [
+            { type: 'input_text', text: 'Script completed\nWall time 0.0 seconds\nOutput:\n' },
+            { type: 'input_image', image_url: 'data:image/png;base64,Zmlyc3Q=' },
+          ],
+        },
+      });
+
+      expect(chunks).toEqual([
+        {
+          type: 'tool_use',
+          id: 'call_image_wrapper',
+          name: 'Read',
+          input: {
+            path: 'tmp/pages/p004_fig1.png',
+            detail: 'original',
+            file_path: 'tmp/pages/p004_fig1.png',
+          },
+        },
+        {
+          type: 'tool_result',
+          id: 'call_image_wrapper',
+          content: 'tmp/pages/p004_fig1.png',
+          isError: false,
+        },
+      ]);
+    });
+
+    it('expands a multi-image exec envelope without duplicate semantic image items', () => {
+      router.beginTurn({ isPlanTurn: false });
+
+      router.handleNotification('rawResponseItem/completed', {
+        threadId: 't1',
+        turnId: 'turn1',
+        item: {
+          type: 'custom_tool_call',
+          name: 'exec',
+          call_id: 'call_image_group',
+          input: [
+            'const first = await tools.view_image({path:"tmp/pages/p002_fig1.png",detail:"original"});',
+            'image(first.image_url);',
+            'const second = await tools.view_image({path:"tmp/pages/p002_fig2.png",detail:"original"});',
+            'image(second.image_url);',
+          ].join('\n'),
+        },
+      });
+
+      for (const [index, fileName] of ['p002_fig1.png', 'p002_fig2.png'].entries()) {
+        const item = {
+          type: 'imageView',
+          id: `semantic_image_${index + 1}`,
+          path: `/vault/tmp/pages/${fileName}`,
+        };
+        router.handleNotification('item/started', { threadId: 't1', turnId: 'turn1', item });
+        router.handleNotification('item/completed', { threadId: 't1', turnId: 'turn1', item });
+      }
+
+      router.handleNotification('rawResponseItem/completed', {
+        threadId: 't1',
+        turnId: 'turn1',
+        item: {
+          type: 'custom_tool_call_output',
+          call_id: 'call_image_group',
+          output: [
+            { type: 'input_text', text: 'Script completed\nWall time 0.0 seconds\nOutput:\n' },
+            { type: 'input_image', image_url: 'data:image/png;base64,Zmlyc3Q=' },
+            { type: 'input_image', image_url: 'data:image/png;base64,c2Vjb25k' },
+          ],
+        },
+      });
+
+      expect(chunks.filter(chunk => chunk.type === 'tool_use')).toEqual([
+        expect.objectContaining({
+          id: 'call_image_group:1',
+          name: 'Read',
+          input: expect.objectContaining({ file_path: 'tmp/pages/p002_fig1.png' }),
+        }),
+        expect.objectContaining({
+          id: 'call_image_group:2',
+          name: 'Read',
+          input: expect.objectContaining({ file_path: 'tmp/pages/p002_fig2.png' }),
+        }),
+      ]);
+      expect(chunks.filter(chunk => chunk.type === 'tool_result')).toEqual([
+        {
+          type: 'tool_result',
+          id: 'call_image_group:1',
+          content: 'tmp/pages/p002_fig1.png',
+          isError: false,
+        },
+        {
+          type: 'tool_result',
+          id: 'call_image_group:2',
+          content: 'tmp/pages/p002_fig2.png',
+          isError: false,
+        },
+      ]);
+    });
+
+    it('deduplicates semantically equal wrapped commands with safe path quotes removed', () => {
+      router.beginTurn({ isPlanTurn: false });
+
+      router.handleNotification('rawResponseItem/completed', {
+        threadId: 't1',
+        turnId: 'turn1',
+        item: {
+          type: 'custom_tool_call',
+          name: 'exec',
+          call_id: 'call_find_wrapper',
+          input: [
+            'const r = await tools.exec_command({',
+            '  cmd:"find . -path \'./.obsidian\' -prune -o -path \'./.claude\' -prune",',
+            '  workdir:"."',
+            '});',
+            'text(r.output);',
+          ].join('\n'),
+        },
+      });
+      router.handleNotification('item/started', {
+        threadId: 't1',
+        turnId: 'turn1',
+        item: {
+          type: 'commandExecution',
+          id: 'semantic_find',
+          command: 'find . -path ./.obsidian -prune -o -path ./.claude -prune',
+          cwd: '/vault',
+          processId: '123',
+          source: 'unifiedExecStartup',
+          status: 'inProgress',
+          commandActions: [{
+            type: 'unknown',
+            command: 'find . -path ./.obsidian -prune -o -path ./.claude -prune',
+          }],
+          aggregatedOutput: null,
+          exitCode: null,
+          durationMs: null,
+        },
+      });
+      router.handleNotification('item/completed', {
+        threadId: 't1',
+        turnId: 'turn1',
+        item: {
+          type: 'commandExecution',
+          id: 'semantic_find',
+          command: 'find . -path ./.obsidian -prune -o -path ./.claude -prune',
+          cwd: '/vault',
+          processId: '123',
+          source: 'unifiedExecStartup',
+          status: 'completed',
+          commandActions: [{
+            type: 'unknown',
+            command: 'find . -path ./.obsidian -prune -o -path ./.claude -prune',
+          }],
+          aggregatedOutput: 'note.md\n',
+          exitCode: 0,
+          durationMs: 10,
+        },
+      });
+      router.handleNotification('rawResponseItem/completed', {
+        threadId: 't1',
+        turnId: 'turn1',
+        item: {
+          type: 'custom_tool_call_output',
+          call_id: 'call_find_wrapper',
+          output: [
+            { type: 'input_text', text: 'Script completed\nWall time 0.1 seconds\nOutput:\n' },
+            { type: 'input_text', text: 'note.md\n' },
+          ],
+        },
+      });
+
+      expect(chunks.filter(chunk => chunk.type === 'tool_use')).toEqual([
+        expect.objectContaining({ id: 'call_find_wrapper', name: 'Bash' }),
+      ]);
+      expect(chunks.filter(chunk => chunk.type === 'tool_result')).toEqual([
+        {
+          type: 'tool_result',
+          id: 'call_find_wrapper',
+          content: 'note.md\n',
+          isError: false,
+        },
+      ]);
+    });
+
+    it('deduplicates wrapped commands whose Unicode path switches quote style', () => {
+      router.beginTurn({ isPlanTurn: false });
+      const rawCommand = [
+        "sed -n '228,900p'",
+        '"tmp/Ivison 等 - 2026 - Tmax A simple recipe for terminal agents/fulltext.md"',
+      ].join(' ');
+      const semanticCommand = [
+        "sed -n '228,900p'",
+        "'tmp/Ivison 等 - 2026 - Tmax A simple recipe for terminal agents/fulltext.md'",
+      ].join(' ');
+
+      router.handleNotification('rawResponseItem/completed', {
+        threadId: 't1',
+        turnId: 'turn1',
+        item: {
+          type: 'custom_tool_call',
+          name: 'exec',
+          call_id: 'call_unicode_path',
+          input: [
+            `const r = await tools.exec_command({cmd:${JSON.stringify(rawCommand)}});`,
+            'text(r.output);',
+          ].join('\n'),
+        },
+      });
+      router.handleNotification('item/started', {
+        threadId: 't1',
+        turnId: 'turn1',
+        item: {
+          type: 'commandExecution',
+          id: 'semantic_unicode_path',
+          command: semanticCommand,
+          cwd: '/vault',
+          processId: '123',
+          source: 'unifiedExecStartup',
+          status: 'inProgress',
+          commandActions: [{ type: 'unknown', command: semanticCommand }],
+          aggregatedOutput: null,
+          exitCode: null,
+          durationMs: null,
+        },
+      });
+      router.handleNotification('item/completed', {
+        threadId: 't1',
+        turnId: 'turn1',
+        item: {
+          type: 'commandExecution',
+          id: 'semantic_unicode_path',
+          command: semanticCommand,
+          cwd: '/vault',
+          processId: '123',
+          source: 'unifiedExecStartup',
+          status: 'completed',
+          commandActions: [{ type: 'unknown', command: semanticCommand }],
+          aggregatedOutput: 'paper text\n',
+          exitCode: 0,
+          durationMs: 10,
+        },
+      });
+      router.handleNotification('rawResponseItem/completed', {
+        threadId: 't1',
+        turnId: 'turn1',
+        item: {
+          type: 'custom_tool_call_output',
+          call_id: 'call_unicode_path',
+          output: [
+            { type: 'input_text', text: 'Script completed\nWall time 0.1 seconds\nOutput:\n' },
+            { type: 'input_text', text: 'paper text\n' },
+          ],
+        },
+      });
+
+      expect(chunks.filter(chunk => chunk.type === 'tool_use')).toEqual([
+        expect.objectContaining({ id: 'call_unicode_path', name: 'Bash' }),
+      ]);
+      expect(chunks.filter(chunk => chunk.type === 'tool_result')).toEqual([
+        {
+          type: 'tool_result',
+          id: 'call_unicode_path',
+          content: 'paper text\n',
+          isError: false,
+        },
+      ]);
+    });
+
+    it('deduplicates a wrapped multi-command against its semantic command actions', () => {
+      router.beginTurn({ isPlanTurn: false });
+      const directory = 'tmp/Lee 等 - 2026 - Recursive Harness Self-Improvement';
+      const rawCommand = [
+        `cat "${directory}/meta.json"`,
+        "printf '\\n--- headings / page markers ---\\n'",
+        `rg -n '^(--- Page|#)' "${directory}/fulltext.md" | head -n 240`,
+      ].join('\n');
+      const semanticCommands = [
+        `cat '${directory}/meta.json'`,
+        `rg -n '^(--- Page|#)' "${directory}/fulltext.md"`,
+      ];
+
+      router.handleNotification('rawResponseItem/completed', {
+        threadId: 't1',
+        turnId: 'turn1',
+        item: {
+          type: 'custom_tool_call',
+          name: 'exec',
+          call_id: 'call_multi_command',
+          input: [
+            `const r = await tools.exec_command({cmd:${JSON.stringify(rawCommand)}});`,
+            'text(r.output);',
+          ].join('\n'),
+        },
+      });
+
+      const commandItem = {
+        type: 'commandExecution',
+        id: 'semantic_multi_command',
+        command: `/bin/zsh -lc ${JSON.stringify(rawCommand)}`,
+        cwd: '/vault',
+        processId: '123',
+        source: 'unifiedExecStartup',
+        status: 'inProgress',
+        commandActions: semanticCommands.map(command => ({ type: 'unknown', command })),
+        aggregatedOutput: null,
+        exitCode: null,
+        durationMs: null,
+      };
+      router.handleNotification('item/started', {
+        threadId: 't1',
+        turnId: 'turn1',
+        item: commandItem,
+      });
+      router.handleNotification('item/completed', {
+        threadId: 't1',
+        turnId: 'turn1',
+        item: {
+          ...commandItem,
+          status: 'completed',
+          aggregatedOutput: 'metadata\nheadings\n',
+          exitCode: 0,
+          durationMs: 10,
+        },
+      });
+      router.handleNotification('rawResponseItem/completed', {
+        threadId: 't1',
+        turnId: 'turn1',
+        item: {
+          type: 'custom_tool_call_output',
+          call_id: 'call_multi_command',
+          output: [
+            { type: 'input_text', text: 'Script completed\nWall time 0.1 seconds\nOutput:\n' },
+            { type: 'input_text', text: 'metadata\nheadings\n' },
+          ],
+        },
+      });
+
+      expect(chunks.filter(chunk => chunk.type === 'tool_use')).toEqual([
+        expect.objectContaining({ id: 'call_multi_command', name: 'Bash' }),
+      ]);
+      expect(chunks.filter(chunk => chunk.type === 'tool_result')).toEqual([
+        {
+          type: 'tool_result',
+          id: 'call_multi_command',
+          content: 'metadata\nheadings\n',
+          isError: false,
+        },
+      ]);
+    });
+
     it('keeps a later identical semantic command after an unmatched raw wrapper completes', () => {
       router.beginTurn({ isPlanTurn: false });
 

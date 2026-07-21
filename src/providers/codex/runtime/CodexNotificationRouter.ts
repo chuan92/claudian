@@ -3,6 +3,7 @@ import type { StreamChunk, UsageInfo } from '../../../core/types';
 import { extractCodexUserVisibleText, joinCodexUserTextParts } from '../codexUserText';
 import {
   appendCodexCommandOutput,
+  decodeCodexExecEnvelope,
   extractCodexExecCellId,
   isCodexToolOutputError,
   normalizeCodexToolCall,
@@ -11,6 +12,7 @@ import {
   normalizeCodexToolResult,
   parseCodexArguments,
   readCodexExecCellIdArgument,
+  splitCodexExecEnvelopeOutput,
   stringifyCodexToolOutput,
 } from '../normalization/codexToolNormalization';
 import type {
@@ -50,6 +52,17 @@ interface WrappedWaitCall {
   cellId: string;
 }
 
+interface RawExecEnvelopeCall {
+  id: string;
+  name: string;
+  input: Record<string, unknown>;
+}
+
+interface PendingRawImageWrapper {
+  callId: string;
+  path: string;
+}
+
 const COLLAB_AGENT_TOOL_MAP: Record<string, string> = {
   spawnAgent: 'spawn_agent',
   wait: 'wait',
@@ -77,8 +90,11 @@ export class CodexNotificationRouter {
   private wrappedCommandCallIdsByCellId = new Map<string, string>();
   private wrappedCommandOutputByCallId = new Map<string, string>();
   private wrappedWaitCallsByCallId = new Map<string, WrappedWaitCall>();
+  private rawExecEnvelopeCallsByCallId = new Map<string, RawExecEnvelopeCall[]>();
   private rawCommandWrapperIdsByFingerprint = new Map<string, string[]>();
+  private pendingRawImageWrappers: PendingRawImageWrapper[] = [];
   private suppressedSemanticCommandIds = new Set<string>();
+  private suppressedSemanticImageIds = new Set<string>();
   private suppressedRawCallIds = new Set<string>();
   private fileChangeInputsById = new Map<string, Record<string, unknown>>();
 
@@ -147,8 +163,11 @@ export class CodexNotificationRouter {
     this.wrappedCommandCallIdsByCellId.clear();
     this.wrappedCommandOutputByCallId.clear();
     this.wrappedWaitCallsByCallId.clear();
+    this.rawExecEnvelopeCallsByCallId.clear();
     this.rawCommandWrapperIdsByFingerprint.clear();
+    this.pendingRawImageWrappers = [];
     this.suppressedSemanticCommandIds.clear();
+    this.suppressedSemanticImageIds.clear();
     this.suppressedRawCallIds.clear();
     this.fileChangeInputsById.clear();
   }
@@ -168,8 +187,11 @@ export class CodexNotificationRouter {
     this.wrappedCommandCallIdsByCellId.clear();
     this.wrappedCommandOutputByCallId.clear();
     this.wrappedWaitCallsByCallId.clear();
+    this.rawExecEnvelopeCallsByCallId.clear();
     this.rawCommandWrapperIdsByFingerprint.clear();
+    this.pendingRawImageWrappers = [];
     this.suppressedSemanticCommandIds.clear();
+    this.suppressedSemanticImageIds.clear();
     this.suppressedRawCallIds.clear();
     this.fileChangeInputsById.clear();
   }
@@ -277,7 +299,11 @@ export class CodexNotificationRouter {
         break;
 
       case 'imageView':
-        this.emitToolUseFromImageView(item);
+        if (this.claimRawImageWrapper(item)) {
+          this.suppressedSemanticImageIds.add(item.id);
+        } else {
+          this.emitToolUseFromImageView(item);
+        }
         break;
 
       case 'webSearch':
@@ -326,6 +352,12 @@ export class CodexNotificationRouter {
         break;
 
       case 'imageView':
+        if (
+          this.suppressedSemanticImageIds.delete(item.id)
+          || this.claimRawImageWrapper(item)
+        ) {
+          break;
+        }
         this.emitToolResultFromImageView(item);
         break;
 
@@ -441,9 +473,50 @@ export class CodexNotificationRouter {
       return;
     }
 
+    if (rawName === 'exec') {
+      const decodedCalls = decodeCodexExecEnvelope(parseRawArguments(item));
+      if (decodedCalls && decodedCalls.length > 0) {
+        this.emitRawExecEnvelope(callId, decodedCalls);
+        return;
+      }
+    }
+
     // Generic custom tools have no semantic item/completed notification; their raw output is terminal.
     this.immediateRawOutputCallIds.add(callId);
     this.emitRawToolUse(callId, rawName, item);
+  }
+
+  private emitRawExecEnvelope(
+    outerCallId: string,
+    decodedCalls: Array<{ name: string; input: Record<string, unknown> }>,
+  ): void {
+    if (this.rawExecEnvelopeCallsByCallId.has(outerCallId)) {
+      return;
+    }
+
+    const calls = decodedCalls.map((call, index): RawExecEnvelopeCall => ({
+      id: decodedCalls.length === 1 ? outerCallId : `${outerCallId}:${index + 1}`,
+      name: call.name,
+      input: call.input,
+    }));
+    if (calls.every(call => this.rawStartedCallIds.has(call.id))) {
+      return;
+    }
+    this.rawExecEnvelopeCallsByCallId.set(outerCallId, calls);
+    this.resetAssistantSegmentText();
+
+    for (const call of calls) {
+      this.rawStartedCallIds.add(call.id);
+      this.rawToolNamesByCallId.set(call.id, call.name);
+      this.rawToolInputsByCallId.set(call.id, call.input);
+      this.rememberRawExecEnvelopeCall(call);
+      this.emit({
+        type: 'tool_use',
+        id: call.id,
+        name: call.name,
+        input: call.input,
+      });
+    }
   }
 
   private emitRawToolUse(
@@ -466,10 +539,6 @@ export class CodexNotificationRouter {
     this.rawStartedCallIds.add(callId);
     this.rawToolNamesByCallId.set(callId, normalized.name);
     this.rawToolInputsByCallId.set(callId, normalized.input);
-
-    if (rawName === 'exec' && normalized.name === normalizeCodexToolName('exec_command')) {
-      this.rememberRawCommandWrapper(callId, normalized.input);
-    }
 
     this.resetAssistantSegmentText();
     this.emit({
@@ -494,6 +563,12 @@ export class CodexNotificationRouter {
     }
 
     if (this.suppressedRawCallIds.delete(callId)) {
+      return;
+    }
+
+    const execEnvelopeCalls = this.rawExecEnvelopeCallsByCallId.get(callId);
+    if (execEnvelopeCalls) {
+      this.handleRawExecEnvelopeOutput(callId, execEnvelopeCalls, item.output);
       return;
     }
 
@@ -531,6 +606,71 @@ export class CodexNotificationRouter {
     }
 
     this.rawToolOutputsByCallId.set(callId, result);
+  }
+
+  private handleRawExecEnvelopeOutput(
+    outerCallId: string,
+    calls: RawExecEnvelopeCall[],
+    rawOutput: unknown,
+  ): void {
+    this.rawExecEnvelopeCallsByCallId.delete(outerCallId);
+    for (const call of calls) {
+      this.removePendingRawExecEnvelopeCall(call);
+    }
+
+    const rawOutputText = stringifyCodexToolOutput(rawOutput);
+    const outputParts = splitCodexExecEnvelopeOutput(rawOutput, calls.length);
+
+    if (calls.length === 1) {
+      const call = calls[0];
+      if (!call) return;
+
+      const outputValue = outputParts?.[0] ?? rawOutput;
+      const content = normalizeRawToolOutput(call.name, outputValue, call.input);
+      const execCellId = call.name === 'Bash'
+        ? extractCodexExecCellId(rawOutputText)
+        : undefined;
+      if (execCellId) {
+        this.wrappedCommandCallIdsByCellId.set(execCellId, call.id);
+        this.appendWrappedCommandOutput(call.id, content);
+        return;
+      }
+
+      this.emit({
+        type: 'tool_result',
+        id: call.id,
+        content,
+        isError: isCodexToolOutputError(rawOutputText),
+      });
+      return;
+    }
+
+    if (outputParts) {
+      for (const [index, call] of calls.entries()) {
+        const outputValue = outputParts[index] ?? '';
+        const outputText = stringifyCodexToolOutput(outputValue);
+        this.emit({
+          type: 'tool_result',
+          id: call.id,
+          content: normalizeRawToolOutput(call.name, outputValue, call.input),
+          isError: isCodexToolOutputError(outputText),
+        });
+      }
+      return;
+    }
+
+    const isError = isCodexToolOutputError(rawOutputText);
+    for (const [index, call] of calls.entries()) {
+      const isLastCall = index === calls.length - 1;
+      this.emit({
+        type: 'tool_result',
+        id: call.id,
+        content: isLastCall
+          ? normalizeRawToolOutput(call.name, rawOutput, call.input)
+          : '',
+        isError,
+      });
+    }
   }
 
   private handleWrappedWaitOutput(waitCall: WrappedWaitCall, rawOutput: unknown): void {
@@ -573,6 +713,32 @@ export class CodexNotificationRouter {
     }
   }
 
+  private rememberRawExecEnvelopeCall(call: RawExecEnvelopeCall): void {
+    if (call.name === normalizeCodexToolName('exec_command')) {
+      this.rememberRawCommandWrapper(call.id, call.input);
+      return;
+    }
+
+    if (call.name === normalizeCodexToolName('view_image')) {
+      const path = firstString(call.input.file_path, call.input.path);
+      if (path) {
+        this.pendingRawImageWrappers.push({ callId: call.id, path });
+      }
+    }
+  }
+
+  private removePendingRawExecEnvelopeCall(call: RawExecEnvelopeCall): void {
+    if (call.name === normalizeCodexToolName('exec_command')) {
+      this.removePendingRawCommandWrapper(call.id);
+      return;
+    }
+
+    if (call.name === normalizeCodexToolName('view_image')) {
+      this.pendingRawImageWrappers = this.pendingRawImageWrappers
+        .filter(wrapper => wrapper.callId !== call.id);
+    }
+  }
+
   private rememberRawCommandWrapper(
     callId: string,
     input: Record<string, unknown>,
@@ -599,6 +765,20 @@ export class CodexNotificationRouter {
         return true;
       }
     }
+
+    const actionFingerprints = createCommandActionFingerprints(item);
+    if (actionFingerprints.length < 2) {
+      return false;
+    }
+
+    for (const rawFingerprint of this.rawCommandWrapperIdsByFingerprint.keys()) {
+      if (
+        containsCommandActionSequence(rawFingerprint, actionFingerprints)
+        && takePendingId(this.rawCommandWrapperIdsByFingerprint, rawFingerprint) !== undefined
+      ) {
+        return true;
+      }
+    }
     return false;
   }
 
@@ -608,6 +788,18 @@ export class CodexNotificationRouter {
     if (fingerprint) {
       removePendingId(this.rawCommandWrapperIdsByFingerprint, fingerprint, callId);
     }
+  }
+
+  private claimRawImageWrapper(item: ImageViewItem): boolean {
+    const wrapperIndex = this.pendingRawImageWrappers.findIndex(wrapper => (
+      areEquivalentToolPaths(wrapper.path, item.path)
+    ));
+    if (wrapperIndex === -1) {
+      return false;
+    }
+
+    this.pendingRawImageWrappers.splice(wrapperIndex, 1);
+    return true;
   }
 
   private emitMissingRawAgentMessageText(item: Record<string, unknown>): void {
@@ -1002,8 +1194,181 @@ function buildCommandInput(item: CommandExecutionItem): Record<string, unknown> 
 }
 
 function createCommandFingerprint(input: Record<string, unknown>): string | null {
-  const command = firstString(input.command).trim();
+  const command = normalizeShellCommandForFingerprint(firstString(input.command));
   return command ? command : null;
+}
+
+function createCommandActionFingerprints(item: CommandExecutionItem): string[] {
+  return (item.commandActions ?? [])
+    .map(action => normalizeShellCommandForFingerprint(firstString(action.command)))
+    .filter(Boolean);
+}
+
+function containsCommandActionSequence(
+  commandFingerprint: string,
+  actionFingerprints: readonly string[],
+): boolean {
+  let searchStart = 0;
+
+  for (const actionFingerprint of actionFingerprints) {
+    const matchIndex = findCommandFingerprintSegment(
+      commandFingerprint,
+      actionFingerprint,
+      searchStart,
+    );
+    if (matchIndex === -1) {
+      return false;
+    }
+    searchStart = matchIndex + actionFingerprint.length;
+  }
+
+  return true;
+}
+
+function findCommandFingerprintSegment(
+  commandFingerprint: string,
+  actionFingerprint: string,
+  startIndex: number,
+): number {
+  let matchIndex = commandFingerprint.indexOf(actionFingerprint, startIndex);
+
+  while (matchIndex !== -1) {
+    const endIndex = matchIndex + actionFingerprint.length;
+    if (
+      isShellCommandBoundary(commandFingerprint, matchIndex - 1)
+      && isShellCommandBoundary(commandFingerprint, endIndex)
+    ) {
+      return matchIndex;
+    }
+    matchIndex = commandFingerprint.indexOf(actionFingerprint, matchIndex + 1);
+  }
+
+  return -1;
+}
+
+function isShellCommandBoundary(command: string, index: number): boolean {
+  if (index < 0 || index >= command.length) {
+    return true;
+  }
+  return /[\s;&|()]/.test(command[index] ?? '');
+}
+
+function normalizeShellCommandForFingerprint(command: string): string {
+  let normalized = '';
+
+  for (let index = 0; index < command.length; index += 1) {
+    const quote = command[index];
+    if (quote !== "'" && quote !== '"') {
+      normalized += quote;
+      continue;
+    }
+
+    const segment = readShellQuotedSegment(command, index, quote);
+    if (!segment) {
+      normalized += quote;
+      continue;
+    }
+
+    const literal = quote === "'"
+      ? segment.content
+      : decodeStaticDoubleQuotedShellValue(segment.content);
+    normalized += literal === null
+      ? command.slice(index, segment.endIndex + 1)
+      : formatShellLiteralFingerprint(literal);
+    index = segment.endIndex;
+  }
+
+  return normalized.trim();
+}
+
+function readShellQuotedSegment(
+  source: string,
+  startIndex: number,
+  quote: "'" | '"',
+): { content: string; endIndex: number } | null {
+  let content = '';
+
+  for (let index = startIndex + 1; index < source.length; index += 1) {
+    const char = source[index] ?? '';
+    if (quote === '"' && char === '\\') {
+      const next = source[index + 1];
+      if (next === undefined) return null;
+      content += char + next;
+      index += 1;
+      continue;
+    }
+    if (char === quote) {
+      return { content, endIndex: index };
+    }
+    content += char;
+  }
+
+  return null;
+}
+
+function decodeStaticDoubleQuotedShellValue(value: string): string | null {
+  let decoded = '';
+
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index] ?? '';
+    if (char === '$' || char === '`') {
+      return null;
+    }
+    if (char !== '\\') {
+      decoded += char;
+      continue;
+    }
+
+    const next = value[index + 1];
+    if (next === undefined) return null;
+    if (next === '\n') {
+      index += 1;
+      continue;
+    }
+    if (next === '$' || next === '`' || next === '"' || next === '\\') {
+      decoded += next;
+      index += 1;
+      continue;
+    }
+    decoded += `\\${next}`;
+    index += 1;
+  }
+
+  return decoded;
+}
+
+function formatShellLiteralFingerprint(value: string): string {
+  return /^[\p{L}\p{N}_./:@%+,=-]+$/u.test(value)
+    ? value
+    : JSON.stringify(value);
+}
+
+function areEquivalentToolPaths(left: string, right: string): boolean {
+  const normalizedLeft = normalizeToolPath(left);
+  const normalizedRight = normalizeToolPath(right);
+  if (!normalizedLeft || !normalizedRight) return false;
+  if (normalizedLeft === normalizedRight) return true;
+  if (isAbsoluteToolPath(normalizedLeft) && isAbsoluteToolPath(normalizedRight)) {
+    return false;
+  }
+
+  const relativeLeft = normalizedLeft.replace(/^\/+/, '');
+  const relativeRight = normalizedRight.replace(/^\/+/, '');
+  return normalizedLeft.endsWith(`/${relativeRight}`)
+    || normalizedRight.endsWith(`/${relativeLeft}`);
+}
+
+function normalizeToolPath(value: string): string {
+  const withForwardSlashes = value.trim().replace(/\\/g, '/');
+  const isAbsolute = withForwardSlashes.startsWith('/');
+  const segments = withForwardSlashes
+    .split('/')
+    .filter(segment => segment && segment !== '.');
+  return `${isAbsolute ? '/' : ''}${segments.join('/')}`;
+}
+
+function isAbsoluteToolPath(value: string): boolean {
+  return value.startsWith('/') || /^[A-Za-z]:\//.test(value);
 }
 
 function queuePendingId(

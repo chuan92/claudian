@@ -28,6 +28,7 @@ import {
   normalizeCodexToolResult,
   parseCodexArguments,
   readCodexExecCellIdArgument,
+  splitCodexExecEnvelopeOutput,
   stringifyCodexToolOutput,
 } from '../normalization/codexToolNormalization';
 
@@ -877,7 +878,7 @@ function applyPersistedExecEnvelopeOutput(
     .filter((toolCall): toolCall is ToolCallInfo => toolCall !== null);
   if (toolCalls.length === 0) return;
 
-  const outputParts = splitPersistedExecEnvelopeOutput(rawOutputValue, toolCalls.length);
+  const outputParts = splitCodexExecEnvelopeOutput(rawOutputValue, toolCalls.length);
   if (outputParts) {
     for (const [index, toolCall] of toolCalls.entries()) {
       const outputPart = outputParts[index] ?? '';
@@ -902,36 +903,6 @@ function applyPersistedExecEnvelopeOutput(
   if (lastToolCall) {
     lastToolCall.result = normalizeCodexToolResult(lastToolCall.name, rawOutputText);
   }
-}
-
-function splitPersistedExecEnvelopeOutput(
-  rawOutputValue: string | unknown[] | undefined,
-  toolCallCount: number,
-): Array<string | unknown[]> | null {
-  if (!Array.isArray(rawOutputValue)) return null;
-
-  const outputParts: Array<string | unknown[]> = [];
-  for (const part of rawOutputValue) {
-    if (!part || typeof part !== 'object' || Array.isArray(part)) return null;
-    const text = (part as Record<string, unknown>).text;
-    outputParts.push(typeof text === 'string' ? text : [part]);
-  }
-
-  // The outer exec transport prepends its own completion header before values
-  // emitted by each text(...) call in the envelope.
-  if (
-    outputParts.length === toolCallCount + 1
-    && typeof outputParts[0] === 'string'
-    && isPersistedExecEnvelopeHeader(outputParts[0])
-  ) {
-    return outputParts.slice(1);
-  }
-
-  return outputParts.length === toolCallCount ? outputParts : null;
-}
-
-function isPersistedExecEnvelopeHeader(value: string): boolean {
-  return value.startsWith('Script ') && value.endsWith('Output:\n');
 }
 
 function readTerminalSessionIdArgument(input: Record<string, unknown>): string | undefined {
