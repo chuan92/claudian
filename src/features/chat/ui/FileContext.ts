@@ -1,4 +1,4 @@
-import type { App, EventRef } from 'obsidian';
+import type { App, EventRef, WorkspaceLeaf } from 'obsidian';
 import { Notice, TFile } from 'obsidian';
 
 import type { McpServerManager } from '../../../core/mcp/McpServerManager';
@@ -82,9 +82,7 @@ export class FileContextManager {
             return;
           }
           try {
-            const existingLeaf = this.app.workspace.getLeavesOfType('markdown').find(
-              leaf => leaf.getViewState().state?.file === file.path,
-            );
+            const existingLeaf = this.findOpenFileLeaf(file.path);
             if (existingLeaf) {
               this.app.workspace.setActiveLeaf(existingLeaf);
               await this.app.workspace.revealLeaf(existingLeaf);
@@ -122,6 +120,16 @@ export class FileContextManager {
     this.renameEventRef = this.app.vault.on('rename', (file, oldPath) => {
       if (file instanceof TFile) this.handleFileRenamed(oldPath, file.path);
     });
+  }
+
+  private findOpenFileLeaf(filePath: string): WorkspaceLeaf | null {
+    let existingLeaf: WorkspaceLeaf | null = null;
+    this.app.workspace.iterateAllLeaves((leaf) => {
+      if (!existingLeaf && leaf.getViewState().state?.file === filePath) {
+        existingLeaf = leaf;
+      }
+    });
+    return existingLeaf;
   }
 
   /** Returns the current note path (shown as chip). */

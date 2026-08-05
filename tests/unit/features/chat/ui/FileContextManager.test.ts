@@ -69,12 +69,14 @@ function createMockApp(options: {
   activeFilePath?: string | null;
   fileCacheByPath?: Map<string, any>;
   markdownLeaves?: any[];
+  pdfLeaves?: any[];
 } = {}) {
   const {
     files = [],
     activeFilePath = null,
     fileCacheByPath = new Map(),
     markdownLeaves = [],
+    pdfLeaves = [],
   } = options;
   const fileMap = new Map<string, TFile>();
   files.forEach((filePath) => {
@@ -97,7 +99,12 @@ function createMockApp(options: {
       getLeaf: jest.fn(() => ({
         openFile: jest.fn().mockResolvedValue(undefined),
       })),
-      getLeavesOfType: jest.fn(() => markdownLeaves),
+      getLeavesOfType: jest.fn((viewType: string) => (
+        viewType === 'pdf' ? pdfLeaves : markdownLeaves
+      )),
+      iterateAllLeaves: jest.fn((callback: (leaf: any) => void) => {
+        [...markdownLeaves, ...pdfLeaves].forEach(callback);
+      }),
       revealLeaf: jest.fn().mockResolvedValue(undefined),
       setActiveLeaf: jest.fn(),
     },
@@ -947,6 +954,33 @@ describe('FileContextManager', () => {
 
       const openCallback = (manager as any).chipsView.callbacks.onOpenFile;
       openCallback('notes/open.md');
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(app.workspace.setActiveLeaf).toHaveBeenCalledWith(existingLeaf);
+      expect(app.workspace.revealLeaf).toHaveBeenCalledWith(existingLeaf);
+      expect(app.workspace.getLeaf).not.toHaveBeenCalled();
+      manager.destroy();
+    });
+
+    it('activates an existing PDF leaf for the linked note', async () => {
+      const existingLeaf = {
+        view: {},
+        getViewState: jest.fn(() => ({
+          type: 'pdf',
+          state: { file: 'documents/open.pdf' },
+        })),
+      };
+      const app = createMockApp({
+        files: ['documents/open.pdf'],
+        pdfLeaves: [existingLeaf],
+      });
+      const manager = new FileContextManager(
+        app, containerEl as any, inputEl, createMockCallbacks()
+      );
+
+      const openCallback = (manager as any).chipsView.callbacks.onOpenFile;
+      openCallback('documents/open.pdf');
       await Promise.resolve();
       await Promise.resolve();
 
