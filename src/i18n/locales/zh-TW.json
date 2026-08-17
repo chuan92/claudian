@@ -301,7 +301,7 @@
     },
     "shareSessionsAcrossMachines": {
       "name": "跨裝置共享對話",
-      "desc": "將 Claude 和 Codex 對話記錄鏡像到儲存庫內，讓在一台已同步裝置上開始的對話，可以在另一台裝置上開啟並繼續。需要儲存庫本身已同步（如 Syncthing、iCloud），並會增加儲存庫大小。"
+      "desc": "將 Claude、Codex 和 Cursor 對話記錄鏡像到儲存庫內，讓在一台已同步裝置上開始的對話，可以在另一台裝置上開啟並繼續。需要儲存庫本身已同步（如 Syncthing、iCloud），並會增加儲存庫大小。"
     },
     "chatViewPlacement": {
       "name": "Claudian 開啟位置",

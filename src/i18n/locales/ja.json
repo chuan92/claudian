@@ -301,7 +301,7 @@
     },
     "shareSessionsAcrossMachines": {
       "name": "デバイス間でセッションを共有",
-      "desc": "Claude と Codex の会話トランスクリプトを Vault 内にミラーし、同期済みの別デバイスで会話を開いて続行できるようにします。Vault 自体の同期（Syncthing、iCloud など）が必要で、Vault のサイズが増加します。"
+      "desc": "Claude、Codex、Cursor の会話トランスクリプトを Vault 内にミラーし、同期済みの別デバイスで会話を開いて続行できるようにします。Vault 自体の同期（Syncthing、iCloud など）が必要で、Vault のサイズが増加します。"
     },
     "chatViewPlacement": {
       "name": "Claudian を開く場所",

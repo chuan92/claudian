@@ -301,7 +301,7 @@
     },
     "shareSessionsAcrossMachines": {
       "name": "Partager les sessions entre appareils",
-      "desc": "Reflète les transcriptions Claude et Codex dans le coffre afin qu'une conversation démarrée sur un appareil synchronisé puisse être ouverte et poursuivie sur un autre. Nécessite un coffre synchronisé (par ex. Syncthing, iCloud) et augmente la taille du coffre."
+      "desc": "Reflète les transcriptions Claude, Codex et Cursor dans le coffre afin qu'une conversation démarrée sur un appareil synchronisé puisse être ouverte et poursuivie sur un autre. Nécessite un coffre synchronisé (par ex. Syncthing, iCloud) et augmente la taille du coffre."
     },
     "chatViewPlacement": {
       "name": "Ouvrir Claudian dans",

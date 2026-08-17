@@ -301,7 +301,7 @@
     },
     "shareSessionsAcrossMachines": {
       "name": "跨设备共享会话",
-      "desc": "将 Claude 和 Codex 会话记录镜像到仓库内，这样在一台已同步设备上开始的会话，可以在另一台设备上打开并继续。需要仓库本身已同步（如 Syncthing、iCloud），并会增大仓库体积。"
+      "desc": "将 Claude、Codex 和 Cursor 会话记录镜像到仓库内，这样在一台已同步设备上开始的会话，可以在另一台设备上打开并继续。需要仓库本身已同步（如 Syncthing、iCloud），并会增大仓库体积。"
     },
     "chatViewPlacement": {
       "name": "Claudian 打开位置",

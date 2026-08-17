@@ -301,7 +301,7 @@
     },
     "shareSessionsAcrossMachines": {
       "name": "Compartilhar sessões entre dispositivos",
-      "desc": "Espelha as transcrições do Claude e do Codex no cofre para que uma conversa iniciada em um dispositivo sincronizado possa ser aberta e continuada em outro. Requer que o cofre esteja sincronizado (p. ex., Syncthing, iCloud) e aumenta seu tamanho."
+      "desc": "Espelha as transcrições do Claude, do Codex e do Cursor no cofre para que uma conversa iniciada em um dispositivo sincronizado possa ser aberta e continuada em outro. Requer que o cofre esteja sincronizado (p. ex., Syncthing, iCloud) e aumenta seu tamanho."
     },
     "chatViewPlacement": {
       "name": "Abrir Claudian em",

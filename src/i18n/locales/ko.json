@@ -301,7 +301,7 @@
     },
     "shareSessionsAcrossMachines": {
       "name": "기기 간 세션 공유",
-      "desc": "Claude와 Codex 대화 기록을 보관소(Vault)에 미러링하여 동기화된 다른 기기에서 대화를 열고 이어갈 수 있게 합니다. 보관소 자체의 동기화(Syncthing, iCloud 등)가 필요하며 보관소 크기가 커집니다."
+      "desc": "Claude, Codex 및 Cursor 대화 기록을 보관소(Vault)에 미러링하여 동기화된 다른 기기에서 대화를 열고 이어갈 수 있게 합니다. 보관소 자체의 동기화(Syncthing, iCloud 등)가 필요하며 보관소 크기가 커집니다."
     },
     "chatViewPlacement": {
       "name": "Claudian 열 위치",

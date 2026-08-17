@@ -301,7 +301,7 @@
     },
     "shareSessionsAcrossMachines": {
       "name": "Sitzungen geräteübergreifend teilen",
-      "desc": "Spiegelt Claude- und Codex-Konversationstranskripte in den Tresor, damit eine auf einem synchronisierten Gerät begonnene Konversation auf einem anderen geöffnet und fortgesetzt werden kann. Erfordert einen synchronisierten Tresor (z. B. Syncthing, iCloud) und vergrößert den Tresor."
+      "desc": "Spiegelt Claude-, Codex- und Cursor-Konversationstranskripte in den Tresor, damit eine auf einem synchronisierten Gerät begonnene Konversation auf einem anderen geöffnet und fortgesetzt werden kann. Erfordert einen synchronisierten Tresor (z. B. Syncthing, iCloud) und vergrößert den Tresor."
     },
     "chatViewPlacement": {
       "name": "Claudian öffnen in",
