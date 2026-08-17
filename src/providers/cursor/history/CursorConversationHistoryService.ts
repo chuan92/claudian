@@ -15,6 +15,11 @@ import { buildCursorAcpLaunchSpec } from '../runtime/CursorLaunchSpec';
 import { buildCursorRuntimeEnv } from '../runtime/CursorRuntimeEnvironment';
 import { CursorHistoryAccumulator } from './CursorHistoryAccumulator';
 import {
+  deleteVaultCursorNativeSession,
+  exportCursorNativeSessionToVault,
+  importCursorNativeSessionFromVault,
+} from './CursorNativeTranscriptSync';
+import {
   deleteVaultCursorTranscript,
   exportCursorTranscriptToVault,
   importCursorTranscriptFromVault,
@@ -66,32 +71,42 @@ export class CursorConversationHistoryService implements ProviderConversationHis
       return;
     }
 
-    if (messages.length > conversation.messages.length) {
-      conversation.messages = messages;
-    }
+    conversation.messages = messages;
     this.hydratedKeys.set(conversation.id, hydrationKey);
   }
 
   async ensureLocalTranscripts(
     conversation: Conversation,
     vaultPath: string | null,
+    pathContext?: ProviderHistoryPathContext,
   ): Promise<boolean> {
     if (!vaultPath) {
       return false;
     }
-    const messages = await importCursorTranscriptFromVault(vaultPath, conversation.id);
-    if (messages.length > conversation.messages.length) {
-      conversation.messages = messages;
+
+    const [nativeImport, portableImport] = await Promise.allSettled([
+      importCursorNativeSessionFromVault(vaultPath, conversation, pathContext),
+      importCursorTranscriptFromVault(vaultPath, conversation.id),
+    ]);
+    if (
+      portableImport.status === 'fulfilled'
+      && portableImport.value.length > conversation.messages.length
+    ) {
+      conversation.messages = portableImport.value;
     }
-    return false;
+    return nativeImport.status === 'fulfilled' && nativeImport.value;
   }
 
   async exportTranscripts(
     conversation: Conversation,
     vaultPath: string | null,
+    pathContext?: ProviderHistoryPathContext,
   ): Promise<void> {
     if (vaultPath) {
-      await exportCursorTranscriptToVault(vaultPath, conversation);
+      await Promise.allSettled([
+        exportCursorNativeSessionToVault(vaultPath, conversation, pathContext),
+        exportCursorTranscriptToVault(vaultPath, conversation),
+      ]);
     }
   }
 
@@ -101,9 +116,12 @@ export class CursorConversationHistoryService implements ProviderConversationHis
   ): Promise<void> {
     this.hydratedKeys.delete(conversation.id);
     if (vaultPath) {
-      await deleteVaultCursorTranscript(vaultPath, conversation.id);
+      await Promise.allSettled([
+        deleteVaultCursorNativeSession(vaultPath, conversation.id),
+        deleteVaultCursorTranscript(vaultPath, conversation.id),
+      ]);
     }
-    // Never mutate Cursor native history.
+    // Removing Claudian metadata must never delete Cursor's native session.
   }
 
   resolveSessionIdForConversation(conversation: Conversation | null): string | null {

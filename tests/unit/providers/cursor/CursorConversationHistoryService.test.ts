@@ -1,9 +1,11 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 
 import type { Conversation } from '@/core/types';
 import { CursorConversationHistoryService } from '@/providers/cursor/history/CursorConversationHistoryService';
+import { getCursorNativeSessionDbPath } from '@/providers/cursor/history/CursorNativeTranscriptSync';
 
 function createConversation(): Conversation {
   return {
@@ -76,6 +78,45 @@ describe('CursorConversationHistoryService', () => {
 
     expect(restored.messages).toEqual(source.messages);
     expect(restored.sessionId).toBe('session-1');
+  });
+
+  it('materializes a vault-mirrored native session before ACP history replay', async () => {
+    const sourceHome = path.join(vaultPath, 'machine-a');
+    const targetHome = path.join(vaultPath, 'machine-b');
+    const sourceContext = {
+      environment: { HOME: sourceHome },
+      vaultPath,
+    };
+    const targetContext = {
+      environment: { HOME: targetHome },
+      vaultPath,
+    };
+    const sourcePath = getCursorNativeSessionDbPath('session-1', sourceContext)!;
+    await fs.mkdir(path.dirname(sourcePath), { recursive: true });
+    const database = new DatabaseSync(sourcePath);
+    database.exec('CREATE TABLE blobs (id TEXT PRIMARY KEY, data BLOB)');
+    database.exec('CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)');
+    database.prepare('INSERT INTO blobs (id, data) VALUES (?, ?)').run('history', 'native');
+    database.close();
+
+    const source = createConversation();
+    const loader = jest.fn(async () => {
+      const targetPath = getCursorNativeSessionDbPath('session-1', targetContext)!;
+      await fs.access(targetPath);
+      return [{ content: 'Native replay', id: 'native-1', role: 'assistant' as const, timestamp: 2 }];
+    });
+    const service = new CursorConversationHistoryService(loader);
+    await service.exportTranscripts(source, vaultPath, sourceContext);
+
+    const restored = { ...source, messages: [] };
+    await expect(service.ensureLocalTranscripts(restored, vaultPath, targetContext))
+      .resolves.toBe(true);
+    await service.hydrateConversationHistory(restored, vaultPath, targetContext);
+
+    expect(restored.sessionId).toBe('session-1');
+    expect(restored.messages).toEqual([
+      { content: 'Native replay', id: 'native-1', role: 'assistant', timestamp: 2 },
+    ]);
   });
 
   it('removes only the matching Cursor mirror when a conversation is deleted', async () => {
