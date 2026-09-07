@@ -1078,6 +1078,21 @@ export default class ClaudianPlugin extends Plugin {
 
   async renameConversation(id: string, title: string): Promise<void> {
     await this.conversationRepository.rename(id, title);
+    const conversation = this.conversationRepository.getSync(id);
+    if (!conversation) return;
+
+    const titleSyncs: Promise<void>[] = [];
+    for (const view of this.getAllViews()) {
+      const tabManager = view.getTabManager();
+      if (!tabManager) continue;
+
+      for (const tab of tabManager.getAllTabs()) {
+        if (tab.conversationId === id && tab.service?.setSessionTitle) {
+          titleSyncs.push(tab.service.setSessionTitle(conversation.title));
+        }
+      }
+    }
+    await Promise.allSettled(titleSyncs);
   }
 
   async updateConversation(id: string, updates: Partial<Conversation>): Promise<void> {

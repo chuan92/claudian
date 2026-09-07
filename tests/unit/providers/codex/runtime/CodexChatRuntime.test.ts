@@ -594,6 +594,49 @@ describe('CodexChatRuntime', () => {
   });
 
   describe('query - new thread', () => {
+    it('assigns the vault project and applies the Claudian conversation title', async () => {
+      const originalRequest = mockTransportRequest.getMockImplementation()!;
+      mockTransportRequest.mockImplementation((method: string, ...args: unknown[]) => {
+        if (method === 'project/list') {
+          return Promise.resolve({ data: [{ id: 'vault-project', roots: [{ path: '/test/vault' }] }] });
+        }
+        return originalRequest(method, ...args);
+      });
+      await runtime.setSessionTitle('Claudian conversation title');
+      const turn = createTurn('Explain this note');
+      turn.prompt = 'Explain this note\n[Current note: notes/private.md]';
+      await collectChunks(runtime.query(turn));
+      expect(findCall('thread/start')[1]).toEqual(expect.objectContaining({ projectId: 'vault-project' }));
+      expect(mockTransportRequest).toHaveBeenCalledWith(
+        'thread/name/set', { threadId: 'thread-001', name: 'Claudian conversation title' }, 3000,
+      );
+    });
+
+    it('updates the native thread when the Claudian title changes', async () => {
+      await runtime.setSessionTitle('Fallback title');
+      await collectChunks(runtime.query(createTurn('Hello')));
+
+      await runtime.setSessionTitle('AI generated title');
+
+      expect(mockTransportRequest).toHaveBeenLastCalledWith(
+        'thread/name/set', { threadId: 'thread-001', name: 'AI generated title' }, 3000,
+      );
+    });
+
+    it('continues streaming when naming is unsupported', async () => {
+      const originalRequest = mockTransportRequest.getMockImplementation()!;
+      mockTransportRequest.mockImplementation((method: string, ...args: unknown[]) => {
+        if (method === 'thread/name/set') return Promise.reject(new Error('Method not found'));
+        return originalRequest(method, ...args);
+      });
+      await runtime.setSessionTitle('Claudian title');
+      const chunks = await collectChunks(runtime.query(createTurn('Hello')));
+      await collectChunks(runtime.query(createTurn('Follow up')));
+      expect(chunks).toContainEqual({ type: 'text', content: 'Hello!' });
+      expect(mockTransportRequest.mock.calls.filter(([method]) => method === 'thread/name/set'))
+        .toHaveLength(1);
+    });
+
     it('sends thread/start and streams text', async () => {
       const chunks = await collectChunks(runtime.query(createTurn('hi')));
 
@@ -994,6 +1037,30 @@ describe('CodexChatRuntime', () => {
   });
 
   describe('query - thread resume', () => {
+    it.each([null, 'other-project'])(
+      'only assigns the vault project when the resumed thread has no project (%s)',
+      async (projectId) => {
+        runtime.syncConversationState({ sessionId: 'thread-existing', providerState: { threadId: 'thread-existing' } });
+        setupDefaultRequestMock('thread-existing');
+        const originalRequest = mockTransportRequest.getMockImplementation()!;
+        mockTransportRequest.mockImplementation(async (method: string, ...args: unknown[]) => {
+          if (method === 'project/list') {
+            return { data: [{ id: 'vault-project', roots: [{ path: '/test/vault' }] }] };
+          }
+          const result = await originalRequest(method, ...args);
+          if (method === 'thread/resume') result.thread.projectId = projectId;
+          return result;
+        });
+        await collectChunks(runtime.query(createTurn('Follow up')));
+        const expectedCalls = projectId ? [] : [
+          ['thread/metadata/update', { threadId: 'thread-existing', projectId: 'vault-project' }, 3000],
+        ];
+        expect(mockTransportRequest.mock.calls.filter(([method]) => method === 'thread/metadata/update'))
+          .toEqual(expectedCalls);
+        expect(findCall('thread/name/set')).toBeUndefined();
+      },
+    );
+
     it('sends thread/resume when a threadId exists', async () => {
       runtime.syncConversationState({
         sessionId: 'thread-existing',

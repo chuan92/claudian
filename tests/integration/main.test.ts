@@ -1660,6 +1660,24 @@ describe('ClaudianPlugin', () => {
       expect(updated?.title).toBe('New Title');
     });
 
+    it('syncs renamed conversations to open provider runtimes', async () => {
+      await plugin.onload();
+      const conv = await plugin.createConversation({ providerId: 'codex' });
+      const setSessionTitle = jest.fn().mockResolvedValue(undefined);
+      jest.spyOn(plugin, 'getAllViews').mockReturnValue([{
+        getTabManager: () => ({
+          getAllTabs: () => [{
+            conversationId: conv.id,
+            service: { setSessionTitle },
+          }],
+        }),
+      } as any]);
+
+      await plugin.renameConversation(conv.id, 'Desktop title');
+
+      expect(setSessionTitle).toHaveBeenCalledWith('Desktop title');
+    });
+
     it('should use default title if empty string provided', async () => {
       await plugin.onload();
 

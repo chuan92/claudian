@@ -30,6 +30,8 @@ export interface ChatRuntime {
     conversation: ChatRuntimeConversationState | null,
     externalContextPaths?: string[],
   ): void;
+  /** Mirrors the Claudian conversation title into provider-native session metadata when supported. */
+  setSessionTitle?(title: string): Promise<void>;
   reloadMcpServers(): Promise<void>;
   ensureReady(options?: ChatRuntimeEnsureReadyOptions): Promise<boolean>;
   query(

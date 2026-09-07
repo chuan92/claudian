@@ -767,6 +767,13 @@ export async function initializeTabService(
     tab.service = service;
     tab.serviceInitialized = true;
 
+    const latestConversation = tab.conversationId
+      ? plugin.getConversationSync(tab.conversationId)
+      : conversation;
+    if (latestConversation?.title && service.setSessionTitle) {
+      await service.setSessionTitle(latestConversation.title).catch(() => undefined);
+    }
+
     // Update lifecycle state
     if (tab.lifecycleState === 'blank') {
       tab.draftModel = null;

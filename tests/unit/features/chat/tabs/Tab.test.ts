@@ -126,6 +126,7 @@ const createMockModeSelector = () => ({
 
 const createMockClaudianService = (overrides?: {
   ensureReady?: jest.Mock;
+  setSessionTitle?: jest.Mock;
   syncConversationState?: jest.Mock;
   onReadyStateChange?: jest.Mock;
   providerId?: 'claude' | 'codex';
@@ -147,6 +148,7 @@ const createMockClaudianService = (overrides?: {
     supportsMcpTools: true,
     reasoningControl: 'effort',
   }),
+  setSessionTitle: overrides?.setSessionTitle,
   syncConversationState: overrides?.syncConversationState ?? jest.fn(),
   onReadyStateChange: overrides?.onReadyStateChange ?? jest.fn((listener: (ready: boolean) => void) => {
     listener(false);
@@ -878,6 +880,32 @@ describe('Tab - Service Initialization', () => {
       await initializeTabService(tab, options.plugin, options.mcpManager);
 
       expect(mockSyncConversationState).toHaveBeenCalledWith(conversation, ['/saved/path']);
+    });
+
+    it('passes the latest Claudian title to runtimes that support native titles', async () => {
+      const setSessionTitle = jest.fn().mockResolvedValue(undefined);
+      jest.spyOn(ProviderRegistry, 'createChatRuntime').mockReturnValue(createMockClaudianService({
+        providerId: 'codex',
+        setSessionTitle,
+      }) as any);
+      const conversation = {
+        id: 'codex-conversation',
+        providerId: 'codex' as const,
+        title: 'Claudian conversation title',
+        messages: [],
+        sessionId: null,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      const plugin = createMockPlugin({
+        getConversationById: jest.fn().mockResolvedValue(conversation),
+        getConversationSync: jest.fn().mockReturnValue(conversation),
+      });
+      const tab = createTab(createMockOptions({ plugin, conversation }));
+
+      await initializeTabService(tab, plugin, createMockMcpManager());
+
+      expect(setSessionTitle).toHaveBeenCalledWith('Claudian conversation title');
     });
 
     it('should initialize toolbar config for the tab provider', () => {

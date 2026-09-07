@@ -72,6 +72,7 @@ import type {
 import { CodexDynamicToolRegistry } from './CodexDynamicToolRegistry';
 import type { CodexLaunchSpec } from './codexLaunchTypes';
 import { CodexNotificationRouter } from './CodexNotificationRouter';
+import { resolveCodexProjectId } from './CodexProjectResolver';
 import { CodexRpcTransport } from './CodexRpcTransport';
 import { type CodexRuntimeContext, createCodexRuntimeContext } from './CodexRuntimeContext';
 import { CodexServerRequestRouter } from './CodexServerRequestRouter';
@@ -147,6 +148,9 @@ export class CodexChatRuntime implements ChatRuntime {
   private currentQueryThreadId: string | null = null;
   private loadedThreadId: string | null = null;
   private currentThreadPath: string | null = null;
+  private desiredThreadName: string | null = null;
+  private lastThreadNameAttempt: { threadId: string; name: string } | null = null;
+  private threadNameSyncTail: Promise<void> = Promise.resolve();
   private workspaceDependencyToolVersion: number | null = null;
   private legacyWorkspaceDependencyNoticeKeys = new Set<string>();
   private pendingTurnNotifications: Array<{ method: string; params: unknown }> = [];
@@ -210,6 +214,8 @@ export class CodexChatRuntime implements ChatRuntime {
       this.session.reset();
       this.loadedThreadId = null;
       this.currentThreadPath = null;
+      this.desiredThreadName = null;
+      this.lastThreadNameAttempt = null;
       this.workspaceDependencyToolVersion = null;
       this.pendingFork = null;
       return;
@@ -235,10 +241,21 @@ export class CodexChatRuntime implements ChatRuntime {
       this.session.reset();
       this.loadedThreadId = null;
       this.currentThreadPath = null;
+      this.lastThreadNameAttempt = null;
       return;
     }
 
+    if (threadId !== this.session.getThreadId()) {
+      this.lastThreadNameAttempt = null;
+    }
     this.session.setThread(threadId, state.sessionFilePath);
+  }
+
+  async setSessionTitle(title: string): Promise<void> {
+    this.desiredThreadName = title.trim() || null;
+    const threadId = this.session.getThreadId();
+    if (!threadId) return;
+    await this.syncDesiredThreadName(threadId);
   }
 
   async reloadMcpServers(): Promise<void> {
@@ -461,6 +478,9 @@ export class CodexChatRuntime implements ChatRuntime {
         threadTargetPath = resumeResult.thread.path ?? null;
         threadPath = this.toHostSessionPath(threadTargetPath);
         this.loadedThreadId = threadId;
+        if (!resumeResult.thread.projectId) {
+          await this.assignVaultProject(threadId);
+        }
       } else if (existingThreadId && existingThreadId === this.loadedThreadId) {
         // Thread already loaded — just start a new turn
         threadId = existingThreadId;
@@ -476,6 +496,7 @@ export class CodexChatRuntime implements ChatRuntime {
       // Update session with thread info
       this.session.setThread(threadId, threadPath ?? this.currentThreadPath ?? undefined);
       if (threadPath) this.currentThreadPath = threadPath;
+      await this.syncDesiredThreadName(threadId);
       this.currentQueryThreadId = threadId;
       if (completedPendingFork) {
         this.pendingFork = null;
@@ -822,6 +843,9 @@ export class CodexChatRuntime implements ChatRuntime {
     this.runtimeContext = null;
     this.loadedThreadId = null;
     this.currentThreadPath = null;
+    this.desiredThreadName = null;
+    this.lastThreadNameAttempt = null;
+    this.threadNameSyncTail = Promise.resolve();
     this.workspaceDependencyToolVersion = null;
     this.legacyWorkspaceDependencyNoticeKeys.clear();
     this.currentTurnId = null;
@@ -947,6 +971,7 @@ export class CodexChatRuntime implements ChatRuntime {
     const workspaceDependencyTool = createCodexWorkspaceDependencyTool(this.runtimeContext);
     this.dynamicToolRegistry.register(workspaceDependencyTool);
     this.serverRequestRouter.setDynamicToolRegistry(this.dynamicToolRegistry);
+    this.lastThreadNameAttempt = null;
     this.clientConfigKey = clientConfigKey;
   }
 
@@ -957,9 +982,12 @@ export class CodexChatRuntime implements ChatRuntime {
   ): Promise<ThreadStartResult> {
     const permissionMode = this.resolveSandboxConfig();
     const dynamicTools = this.dynamicToolRegistry.getThreadStartSpecs();
+    const cwd = this.launchSpec?.targetCwd ?? getVaultPath(this.plugin.app) ?? undefined;
+    const projectId = await resolveCodexProjectId(this.transport!, cwd);
     const startResult = await this.transport!.request<ThreadStartResult>('thread/start', {
       ...(model ? { model } : {}),
-      cwd: this.launchSpec?.targetCwd ?? getVaultPath(this.plugin.app) ?? undefined,
+      cwd,
+      ...(projectId ? { projectId } : {}),
       approvalPolicy: permissionMode.approvalPolicy,
       sandbox: permissionMode.sandbox,
       serviceTier: resolveCodexServiceTier(providerSettings.serviceTier, model, providerSettings),
@@ -975,6 +1003,39 @@ export class CodexChatRuntime implements ChatRuntime {
       ? CODEX_WORKSPACE_DEPENDENCY_TOOL_VERSION
       : null;
     return startResult;
+  }
+
+  private async assignVaultProject(threadId: string): Promise<void> {
+    const cwd = this.launchSpec?.targetCwd ?? getVaultPath(this.plugin.app) ?? undefined;
+    const projectId = await resolveCodexProjectId(this.transport!, cwd);
+    if (projectId) {
+      await this.transport!.request('thread/metadata/update', { threadId, projectId }, 3000).catch(() => {});
+    }
+  }
+
+  private async syncDesiredThreadName(threadId: string): Promise<void> {
+    const transport = this.transport;
+    if (!transport || !this.desiredThreadName) return;
+
+    const sync = this.threadNameSyncTail.then(async () => {
+      const name = this.desiredThreadName;
+      if (
+        !name
+        || this.transport !== transport
+        || (this.lastThreadNameAttempt?.threadId === threadId && this.lastThreadNameAttempt.name === name)
+      ) {
+        return;
+      }
+
+      this.lastThreadNameAttempt = { threadId, name };
+      try {
+        await transport.request('thread/name/set', { threadId, name }, 3000);
+      } catch {
+        // Older app servers do not expose native thread names.
+      }
+    });
+    this.threadNameSyncTail = sync.catch(() => undefined);
+    await sync;
   }
 
   private wireTransportHandlers(): void {

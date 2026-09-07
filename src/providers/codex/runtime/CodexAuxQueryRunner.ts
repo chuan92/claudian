@@ -53,6 +53,7 @@ export class CodexAuxQueryRunner {
         approvalPolicy: 'never',
         sandbox: 'read-only',
         baseInstructions: config.systemPrompt,
+        ephemeral: true,
         experimentalRawEvents: true,
         persistExtendedHistory: false,
       });

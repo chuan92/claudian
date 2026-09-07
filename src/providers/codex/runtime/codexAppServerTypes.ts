@@ -54,6 +54,7 @@ export interface InitializeResult {
 
 export interface Thread {
   id: string;
+  projectId?: string | null;
   preview: string;
   ephemeral: boolean;
   path: string;
@@ -356,6 +357,8 @@ export interface ModelListResult {
 
 export interface ThreadStartParams {
   model?: string;
+  projectId?: string;
+  ephemeral?: boolean;
   cwd?: string;
   approvalPolicy?: string;
   sandbox?: string;
