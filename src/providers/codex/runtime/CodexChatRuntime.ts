@@ -3,7 +3,6 @@ import * as os from 'os';
 import * as path from 'path';
 
 import {
-  buildSystemPrompt,
   computeSystemPromptKey,
   type SystemPromptSettings,
 } from '../../../core/prompt/mainAgent';
@@ -39,6 +38,7 @@ import {
 import { findCodexModel, getDefaultCodexModel } from '../models';
 import { toCodexRuntimeModelId } from '../modelSelection';
 import { encodeCodexTurn } from '../prompt/encodeCodexTurn';
+import { buildCodexSystemPrompt } from '../prompt/mainAgent';
 import {
   type CodexSafeMode,
   getCodexProviderSettings,
@@ -343,7 +343,10 @@ export class CodexChatRuntime implements ChatRuntime {
     const providerSettings = this.getProviderSettings();
     const model = this.resolveModel(queryOptions, providerSettings);
     const promptSettings = this.getSystemPromptSettings();
-    const promptText = buildSystemPrompt(promptSettings);
+    const promptText = buildCodexSystemPrompt({
+      ...promptSettings,
+      vaultPath: this.launchSpec?.targetCwd ?? promptSettings.vaultPath,
+    });
 
     const enqueueChunk = (chunk: StreamChunk): void => {
       this.chunkBuffer.push(chunk);
@@ -381,6 +384,8 @@ export class CodexChatRuntime implements ChatRuntime {
         this.workspaceDependencyToolVersion === null
         || this.workspaceDependencyToolVersion < CODEX_WORKSPACE_DEPENDENCY_TOOL_VERSION
       );
+      // Resuming with omitted/null baseInstructions retains the persisted custom base.
+      // Send the updated prompt explicitly so existing and forked threads receive it too.
       const baseInstructions = isLegacyWorkspaceDependencyThread
         ? `${promptText}\n\n${LEGACY_WORKSPACE_DEPENDENCY_INSTRUCTIONS}`
         : promptText;

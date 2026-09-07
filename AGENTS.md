@@ -40,6 +40,30 @@ npm run typecheck && npm run lint && npm run test && npm run build
 
 Tests mirror `src/` under `tests/unit/` and `tests/integration/`.
 
+### Sandbox-aware verification
+
+- Some existing tests require listening on a local port or writing fixtures under the user home directory. Sandbox restrictions can block these operations.
+- When failure output confirms a sandbox denial (for example, `EPERM` or `EACCES` on those operations), rerun the same test command through the tool's supported permission escalation mechanism, subject to the active approval policy. No separate conversational confirmation is needed when the verification is already authorized. This guide does not grant permissions or override sandbox policy.
+- If the same command is already known to require these permissions in the current session, request the appropriate execution permissions directly instead of repeating a known blocked run.
+- Do not classify assertion failures or unrelated errors as sandbox issues, skip affected tests, or report a blocked run as passing. If escalation is unavailable or denied, report the affected tests and the verification gap.
+- Keep routine retry updates brief; report the actual rerun result and any remaining failures in the final handoff. Do not modify real user data or provider-native files to make tests pass.
+
+## Git Workflow
+
+- `origin` is the fork (`chuan92/claudian`); `upstream` is the source repo (`YishenTu/claudian`), read-only (push disabled).
+- Work happens on `integration`. Push only to `origin`; do not open PRs against upstream for fork-local features.
+- Sync upstream fixes regularly from `integration`:
+
+```bash
+git fetch upstream
+git merge upstream/main
+npm run typecheck && npm run lint && npm run test
+git push origin integration
+```
+
+- `main` (local and `origin`) is reference only; `upstream/main` is the sync source of truth. Refresh the fork's main without checkout: `git push origin upstream/main:main`.
+- To contribute a fix upstream: branch from `upstream/main`, cherry-pick the commit, push to `origin`, and open a PR against `YishenTu/claudian`.
+
 ## Architecture
 
 | Area | Ownership |

@@ -962,6 +962,7 @@ describe('CodexChatRuntime', () => {
         'thread/start',
         expect.objectContaining({
           cwd: '/mnt/c/vault',
+          baseInstructions: expect.stringContaining('Vault absolute path: /mnt/c/vault'),
         }),
       );
     });
@@ -1011,7 +1012,7 @@ describe('CodexChatRuntime', () => {
       });
     });
 
-    it('passes baseInstructions (no temp file)', async () => {
+    it('passes Codex instructions and Obsidian context without Claude tool assumptions', async () => {
       const plugin = createMockPlugin({ systemPrompt: 'Be helpful.' });
       const rt = new CodexChatRuntime(plugin);
 
@@ -1020,6 +1021,11 @@ describe('CodexChatRuntime', () => {
       const threadStartCall = findCall('thread/start');
       expect(threadStartCall).toBeDefined();
       expect(threadStartCall[1].baseInstructions).toContain('Be helpful.');
+      expect(threadStartCall[1].baseInstructions).toContain('You are Codex, running inside Claudian');
+      expect(threadStartCall[1].baseInstructions).toContain('<linked_note>');
+      expect(threadStartCall[1].baseInstructions).not.toContain('Read file_path=');
+      expect(threadStartCall[1].baseInstructions).not.toContain('WebFetch');
+      expect(threadStartCall[1].baseInstructions).not.toContain('absolute path will FAIL');
 
       rt.cleanup();
     });
@@ -1076,6 +1082,8 @@ describe('CodexChatRuntime', () => {
       expect(resumeCall).toBeDefined();
       expect(resumeCall[1].threadId).toBe('thread-existing');
       expect(resumeCall[1].baseInstructions).toBeDefined();
+      expect(resumeCall[1].baseInstructions).toContain('You are Codex, running inside Claudian');
+      expect(resumeCall[1].baseInstructions).not.toContain('Read file_path=');
       expect(resumeCall[1].experimentalRawEvents).toBe(true);
 
       const startCall = findCall('thread/start');
@@ -1099,6 +1107,24 @@ describe('CodexChatRuntime', () => {
       const resumeCall = findCall('thread/resume');
       expect(startCall).toBeUndefined();
       expect(resumeCall).toBeUndefined();
+    });
+
+    it('refreshes instructions on the same thread after custom instructions change', async () => {
+      await collectChunks(runtime.query(createTurn()));
+      const plugin = (runtime as any).plugin;
+      plugin.settings.systemPrompt = 'Use short paragraphs.';
+      mockTransportRequest.mockClear();
+      setupDefaultRequestMock('thread-001');
+
+      await collectChunks(runtime.query(createTurn('Continue')));
+
+      expect(findCall('thread/start')).toBeUndefined();
+      expect(findCall('thread/resume')[1]).toEqual(expect.objectContaining({
+        threadId: 'thread-001',
+        baseInstructions: expect.stringContaining('Use short paragraphs.'),
+      }));
+      expect(findCall('thread/resume')[1].baseInstructions)
+        .toContain('You are Codex, running inside Claudian');
     });
 
     it('preserves a legacy thread and surfaces its dynamic-tool limitation', async () => {
@@ -2458,6 +2484,8 @@ describe('CodexChatRuntime', () => {
       // Verify resume params
       const resumeCall = findCall('thread/resume');
       expect(resumeCall[1].threadId).toBe('fork-thread-1');
+      expect(resumeCall[1].baseInstructions).toContain('You are Codex, running inside Claudian');
+      expect(resumeCall[1].baseInstructions).not.toContain('Read file_path=');
 
       // Verify rollback params (1 turn after checkpoint: turn-uuid-3)
       const rollbackCall = findCall('thread/rollback');

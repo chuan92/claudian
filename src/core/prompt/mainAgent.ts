@@ -55,7 +55,11 @@ The current working directory is the user's vault root.${vaultInfo}
 
 ${pathRules}
 
-## User Message Format
+${getObsidianContextPrompt()}`;
+}
+
+export function getObsidianContextPrompt(): string {
+  return `## User Message Format
 
 User messages have the query first, followed by optional XML context tags:
 
