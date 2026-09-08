@@ -50,7 +50,7 @@ export function createCodexWorkspaceDependencyTool(
           success: false,
           contentItems: [{
             type: 'inputText',
-            text: 'The bundled Codex workspace dependency runtime is unavailable. Report this as a blocker and do not guess or install replacement dependencies.',
+            text: 'The bundled Codex workspace dependency runtime is unavailable. Follow project environment rules and any user-specified interpreter; verify existing tools and dependencies before using them. Continue with verified existing capabilities when they satisfy the task. Report a blocker only if a required capability is still missing. Without explicit user authorization, do not install, upgrade, or remove dependencies, create environments, or modify PATH. Do not guess dependency paths.',
           }],
         };
       }

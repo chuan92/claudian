@@ -712,7 +712,7 @@ describe('CodexChatRuntime', () => {
       }
     });
 
-    it('advertises the workspace dependency tool and returns a blocker for an incomplete runtime', async () => {
+    it('allows verified existing dependencies when the bundled runtime is incomplete', async () => {
       await collectChunks(runtime.query(createTurn('hi')));
 
       expect(findCall('thread/start')[1].dynamicTools).toEqual([
@@ -737,6 +737,18 @@ describe('CodexChatRuntime', () => {
           text: expect.stringContaining('is unavailable'),
         })],
       }));
+      for (const guidance of [
+        'user-specified interpreter',
+        'verify existing tools and dependencies',
+        'only if a required capability is still missing',
+        'Without explicit user authorization, do not install',
+      ]) {
+        expect(response).toEqual(expect.objectContaining({
+          contentItems: [expect.objectContaining({
+            text: expect.stringContaining(guidance),
+          })],
+        }));
+      }
     });
 
     it('refreshes workspace dependency availability without restarting the app server', async () => {
