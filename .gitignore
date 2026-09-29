@@ -88,7 +88,6 @@ sandbox/
 dev
 .context/
 CLAUDE.local.md
-deploy.sh
 
 # Lock files (uncomment based on package manager)
 # yarn.lock

@@ -3,6 +3,7 @@ import {
   TEST_CODEX_MODEL_LABEL,
 } from '@test/helpers/codexModels';
 import { createMockEl } from '@test/helpers/mockElement';
+import { Notice } from 'obsidian';
 
 import type { UsageInfo } from '@/core/types';
 import {
@@ -763,16 +764,21 @@ describe('ServiceTierToggle', () => {
     expect(container?.hasClass('claudian-hidden')).toBe(false);
   });
 
-  it('renders the icon button in the inactive state when fast mode is off', () => {
+  it('shows the current speed and accessible toggle state when fast mode is off', () => {
     const button = parentEl.querySelector('.claudian-service-tier-button');
     const icon = parentEl.querySelector('.claudian-service-tier-icon');
-    const container = parentEl.querySelector('.claudian-service-tier-toggle');
+    const label = parentEl.querySelector('.claudian-service-tier-label');
+    expect(button?.tagName).toBe('BUTTON');
+    expect(button?.getAttribute('type')).toBe('button');
     expect(button?.hasClass('active')).toBe(false);
+    expect(button?.getAttribute('aria-pressed')).toBe('false');
+    expect(button?.getAttribute('aria-label')).toBe('Fast mode');
     expect(icon).not.toBeNull();
-    expect(container?.getAttribute('title')).toBe('Toggle on/off fast mode');
+    expect(label?.textContent).toBe('Standard');
+    expect(button?.getAttribute('title')).toBe('Speed: Standard. Switch to Fast.\n1.5x speed, 2x credits');
   });
 
-  it('renders the icon button in the active state when fast mode is on', () => {
+  it('shows the current speed and accessible toggle state when fast mode is on', () => {
     callbacks.getSettings.mockReturnValue({
       model: TEST_CODEX_MODEL,
       thinkingBudget: 'off',
@@ -784,9 +790,81 @@ describe('ServiceTierToggle', () => {
     new ServiceTierToggle(parentEl2, callbacks);
 
     const button = parentEl2.querySelector('.claudian-service-tier-button');
-    const container = parentEl2.querySelector('.claudian-service-tier-toggle');
     expect(button?.hasClass('active')).toBe(true);
-    expect(container?.getAttribute('title')).toBe('Toggle on/off fast mode');
+    expect(button?.getAttribute('aria-pressed')).toBe('true');
+    expect(button?.getAttribute('aria-label')).toBe('Fast mode');
+    expect(parentEl2.querySelector('.claudian-service-tier-label')?.textContent).toBe('Fast');
+    expect(button?.getAttribute('title')).toBe('Speed: Fast. Switch to Standard.\n1.5x speed, 2x credits');
+  });
+
+  it('updates the visible state in both directions using the provider service tier ID', async () => {
+    callbacks.getUIConfig().getServiceTierToggle.mockReturnValue({
+      inactiveValue: 'default',
+      inactiveLabel: 'Standard',
+      activeValue: 'priority',
+      activeLabel: 'Fast',
+    });
+    callbacks.onServiceTierChange.mockImplementation(async (serviceTier: string) => {
+      callbacks.getSettings().serviceTier = serviceTier;
+    });
+    const button = parentEl.querySelector('.claudian-service-tier-button');
+    const label = parentEl.querySelector('.claudian-service-tier-label');
+
+    await button?.dispatchEvent('click');
+
+    expect(callbacks.onServiceTierChange).toHaveBeenLastCalledWith('priority');
+    expect(label?.textContent).toBe('Fast');
+    expect(button?.getAttribute('aria-pressed')).toBe('true');
+    expect(button?.hasClass('active')).toBe(true);
+
+    await button?.dispatchEvent('click');
+
+    expect(callbacks.onServiceTierChange).toHaveBeenLastCalledWith('default');
+    expect(label?.textContent).toBe('Standard');
+    expect(button?.getAttribute('aria-pressed')).toBe('false');
+    expect(button?.hasClass('active')).toBe(false);
+  });
+
+  it('prevents duplicate changes while saving and clears the pending state afterwards', async () => {
+    let finishChange!: () => void;
+    callbacks.onServiceTierChange.mockImplementation((serviceTier: string) => new Promise<void>((resolve) => {
+      finishChange = () => {
+        callbacks.getSettings().serviceTier = serviceTier;
+        resolve();
+      };
+    }));
+    const button = parentEl.querySelector('.claudian-service-tier-button');
+
+    button?.dispatchEvent('click');
+    button?.dispatchEvent('click');
+
+    expect(callbacks.onServiceTierChange).toHaveBeenCalledTimes(1);
+    expect(button?.disabled).toBe(true);
+    expect(button?.getAttribute('aria-busy')).toBe('true');
+
+    finishChange();
+    await Promise.resolve();
+
+    expect(button?.disabled).toBe(false);
+    expect(button?.getAttribute('aria-busy')).toBe('false');
+    expect(parentEl.querySelector('.claudian-service-tier-label')?.textContent).toBe('Fast');
+  });
+
+  it('keeps the saved state visible and allows retry when a change fails', async () => {
+    callbacks.onServiceTierChange.mockRejectedValueOnce(new Error('Save failed'));
+    const button = parentEl.querySelector('.claudian-service-tier-button');
+
+    await button?.dispatchEvent('click');
+    await Promise.resolve();
+
+    expect(button?.disabled).toBe(false);
+    expect(button?.getAttribute('aria-busy')).toBe('false');
+    expect(button?.getAttribute('aria-pressed')).toBe('false');
+    expect(parentEl.querySelector('.claudian-service-tier-label')?.textContent).toBe('Standard');
+    expect(Notice).toHaveBeenCalledWith('Failed to change service tier');
+
+    await button?.dispatchEvent('click');
+    expect(callbacks.onServiceTierChange).toHaveBeenCalledTimes(2);
   });
 
   it('toggles from Standard to Fast on click', async () => {

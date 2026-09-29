@@ -24,6 +24,7 @@ Do not assume provider parity. Check each provider's `capabilities.ts`, `registr
 ```bash
 npm run dev
 npm run build
+npm run deploy
 npm run typecheck
 npm run lint
 npm run lint:fix
@@ -35,10 +36,19 @@ npm run test:coverage
 Use focused commands while iterating. Before handing off code changes, run the narrowest meaningful verification plus broader checks when the change touches shared behavior. The default full check is:
 
 ```bash
-npm run typecheck && npm run lint && npm run test && npm run build
+npm run typecheck && npm run lint && npm run test && npm run deploy
 ```
 
 Tests mirror `src/` under `tests/unit/` and `tests/integration/`.
+
+### Local deployment
+
+- After code changes pass the required checks, run `npm run deploy` before handing off. This builds and deploys to the configured local Obsidian vault, then verifies all three installed artifacts against the build output.
+- `deploy.sh` is tracked. It reuses the existing esbuild deployment hook for `main.js`, `styles.css`, and `manifest.json`; do not add a separate copy step or overwrite plugin settings and user data.
+- Configure the absolute vault path with `OBSIDIAN_VAULT` in the ignored `.env.local`. Keep machine-specific paths out of tracked files. An explicit `npm run deploy -- "/path/to/vault"` argument overrides the environment, which overrides `.env.local`.
+- Stop on failed checks or builds. Report deployment success only after artifact verification succeeds. The script does not reload Obsidian; report that separately if a reload is still needed.
+- If sandbox permissions block writing to the configured vault, use the tool's supported permission escalation. Local deployment is part of the authorized workflow; no separate conversational confirmation is needed. This does not override the active approval policy.
+- Deployment regression tests live in `scripts/deploy.test.mjs` and run as part of `npm run test`.
 
 ### Sandbox-aware verification
 

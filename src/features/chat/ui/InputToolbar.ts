@@ -483,8 +483,10 @@ export class PermissionToggle {
 
 export class ServiceTierToggle {
   private container: HTMLElement;
-  private buttonEl: HTMLElement | null = null;
+  private buttonEl: HTMLButtonElement | null = null;
   private iconEl: HTMLElement | null = null;
+  private labelEl: HTMLElement | null = null;
+  private isUpdating = false;
   private callbacks: ToolbarCallbacks;
 
   constructor(parentEl: HTMLElement, callbacks: ToolbarCallbacks) {
@@ -496,9 +498,14 @@ export class ServiceTierToggle {
   private render() {
     this.container.empty();
 
-    this.buttonEl = this.container.createDiv({ cls: 'claudian-service-tier-button' });
+    this.buttonEl = this.container.createEl('button', {
+      cls: 'claudian-service-tier-button',
+      attr: { type: 'button' },
+    });
     this.iconEl = this.buttonEl.createSpan({ cls: 'claudian-service-tier-icon' });
+    this.iconEl.setAttribute('aria-hidden', 'true');
     setIcon(this.iconEl, 'zap');
+    this.labelEl = this.buttonEl.createSpan({ cls: 'claudian-service-tier-label' });
 
     this.updateDisplay();
 
@@ -513,7 +520,7 @@ export class ServiceTierToggle {
   }
 
   updateDisplay() {
-    if (!this.buttonEl || !this.iconEl) return;
+    if (!this.buttonEl || !this.labelEl) return;
 
     const toggleConfig = this.getToggleConfig();
     if (!toggleConfig) {
@@ -524,16 +531,22 @@ export class ServiceTierToggle {
     this.container.removeClass('claudian-hidden');
     const current = this.callbacks.getSettings().serviceTier;
     const isActive = current === toggleConfig.activeValue;
-    if (isActive) {
-      this.buttonEl.addClass('active');
-    } else {
-      this.buttonEl.removeClass('active');
-    }
-
-    this.container.setAttribute('title', 'Toggle on/off fast mode');
+    const currentLabel = isActive ? toggleConfig.activeLabel : toggleConfig.inactiveLabel;
+    const nextLabel = isActive ? toggleConfig.inactiveLabel : toggleConfig.activeLabel;
+    this.labelEl.setText(currentLabel);
+    this.buttonEl.toggleClass('active', isActive);
+    this.buttonEl.disabled = this.isUpdating;
+    this.buttonEl.setAttribute('aria-pressed', String(isActive));
+    this.buttonEl.setAttribute('aria-busy', String(this.isUpdating));
+    this.buttonEl.setAttribute('aria-label', `${toggleConfig.activeLabel} mode`);
+    this.buttonEl.setAttribute('title', [
+      `Speed: ${currentLabel}. Switch to ${nextLabel}.`,
+      toggleConfig.description,
+    ].filter(Boolean).join('\n'));
   }
 
   private async toggle() {
+    if (this.isUpdating) return;
     const toggleConfig = this.getToggleConfig();
     if (!toggleConfig) return;
 
@@ -541,8 +554,14 @@ export class ServiceTierToggle {
     const next = current === toggleConfig.activeValue
       ? toggleConfig.inactiveValue
       : toggleConfig.activeValue;
-    await this.callbacks.onServiceTierChange(next);
+    this.isUpdating = true;
     this.updateDisplay();
+    try {
+      await this.callbacks.onServiceTierChange(next);
+    } finally {
+      this.isUpdating = false;
+      this.updateDisplay();
+    }
   }
 }
 

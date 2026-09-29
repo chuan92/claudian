@@ -9,8 +9,14 @@
 
 .claudian-tab-badges {
   display: flex;
+  flex: 0 1 auto;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  background: var(--background-secondary);
+  box-sizing: border-box;
   flex-wrap: nowrap;
   min-width: 0;
   max-width: 100%;
@@ -26,26 +32,28 @@
 }
 
 .claudian-tab-badge {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  flex: 0 0 24px;
-  width: 24px;
-  max-width: 24px;
+  flex: 0 0 28px;
+  width: 28px;
+  max-width: 28px;
   height: 24px;
   box-sizing: border-box;
   padding: 0;
-  border-radius: 4px;
-  border: 2px solid var(--background-modifier-border);
+  border-radius: 7px;
+  border: 1px solid transparent;
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
   color: var(--text-muted);
-  background: var(--background-primary);
+  background: transparent;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+  user-select: none;
+  transition: color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
 }
 
 .claudian-tab-badge-expanded {
@@ -53,7 +61,7 @@
   justify-content: flex-start;
   width: auto;
   max-width: none;
-  padding: 0 8px;
+  padding: 0 10px;
 }
 
 .claudian-tab-badge:hover {
@@ -61,37 +69,49 @@
   color: var(--text-normal);
 }
 
-.claudian-tab-badge-active {
-  border-color: var(--interactive-accent);
-  color: var(--text-normal);
+.claudian-tab-badge-active,
+.claudian-tab-badge-active:hover {
+  background: var(--background-primary);
+  color: var(--text-accent);
+  font-weight: 600;
+  box-shadow: 0 1px 3px var(--background-modifier-box-shadow);
+}
+
+.claudian-tab-badge-streaming::after,
+.claudian-tab-badge-attention::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--claudian-tab-status-color);
 }
 
 .claudian-tab-badge-streaming {
-  border-color: var(--claudian-brand, #da7756);
+  --claudian-tab-status-color: var(--claudian-brand, #da7756);
 }
 
 .claudian-tab-badge-streaming[data-provider="claude"] {
-  border-color: var(--claudian-brand-claude, #D97757);
+  --claudian-tab-status-color: var(--claudian-brand-claude, #D97757);
 }
 
 .claudian-tab-badge-streaming[data-provider="codex"] {
-  border-color: var(--claudian-brand-codex, #d0d0d0);
+  --claudian-tab-status-color: var(--claudian-brand-codex, #d0d0d0);
 }
 
 .claudian-tab-badge-streaming[data-provider="opencode"] {
-  border-color: var(--claudian-brand-opencode, #C8C8C8);
+  --claudian-tab-status-color: var(--claudian-brand-opencode, #C8C8C8);
 }
 
 .claudian-tab-badge-streaming[data-provider="pi"] {
-  border-color: var(--claudian-brand-pi, #ffffff);
+  --claudian-tab-status-color: var(--claudian-brand-pi, #ffffff);
 }
 
 .claudian-tab-badge-attention {
-  border-color: var(--text-error);
-}
-
-.claudian-tab-badge-idle {
-  border-color: var(--background-modifier-border);
+  --claudian-tab-status-color: var(--text-error);
+  color: var(--text-error);
 }
 
 .claudian-tab-content-container {
